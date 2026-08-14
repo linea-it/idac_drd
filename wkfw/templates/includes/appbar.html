@@ -1,0 +1,75 @@
+{% load static i18n %}
+<nav class="navbar navbar-expand-md navbar-dark appbar-gradient fixed-top">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="{% url 'home' %}">
+      <img src="{% static 'images/linea-symbol.svg' %}" alt="LIneA" class="appbar-logo" />
+      <span class="ms-2 d-none d-sm-inline">WKFW</span>
+    </a>
+    <button class="navbar-toggler"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#appbarNavContent"
+            aria-controls="appbarNavContent"
+            aria-expanded="false"
+            aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="appbarNavContent">
+      <ul class="navbar-nav me-auto mb-2 mb-md-0">
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'home' %}">Releases</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'analytics' %}">Analytics</a>
+        </li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle"
+             href="#"
+             id="appbarSettingsMenu"
+             role="button"
+             data-bs-toggle="dropdown"
+             aria-expanded="false">Settings</a>
+          <ul class="dropdown-menu" aria-labelledby="appbarSettingsMenu">
+            <li>
+              <a class="dropdown-item" href="{% url 'templates' %}">Templates</a>
+            </li>
+            {% if request.user.is_staff %}
+              <li>
+                <a class="dropdown-item" href="{% url 'assignees' %}">Assignees</a>
+              </li>
+            {% endif %}
+          </ul>
+        </li>
+      </ul>
+      <div class="d-flex align-items-center appbar-actions">
+        <a class="btn btn-outline-light btn-sm text-uppercase fw-bold appbar-btn"
+           href="{{ settings.NAVBAR_DATA_URL }}"
+           target="_blank"
+           rel="noreferrer">Data</a>
+        <a class="btn btn-outline-light btn-sm text-uppercase fw-bold appbar-btn"
+           href="{{ settings.NAVBAR_DOCS_URL }}"
+           target="_blank"
+           rel="noreferrer">Docs</a>
+        {% if request.user.is_authenticated %}
+          <div class="dropdown appbar-user">
+            <a class="nav-link text-uppercase fw-bold"
+               href="#"
+               id="appbarUserMenu"
+               role="button"
+               data-bs-toggle="dropdown"
+               aria-expanded="false">{{ request.user.username }}</a>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="appbarUserMenu">
+              <li>
+                <a class="dropdown-item" href="{% url 'account_logout' %}">Logout</a>
+              </li>
+            </ul>
+          </div>
+        {% else %}
+          <a id="log-in-link"
+             class="nav-link text-uppercase fw-bold"
+             href="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}?next=/{% endif %}">Sign In</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</nav>

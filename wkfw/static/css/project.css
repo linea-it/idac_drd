@@ -1,0 +1,30 @@
+/* These styles are generated from project.scss. */
+
+body {
+  font-family: "Roboto", "Helvetica", "Arial", sans-serif;
+}
+
+/* Shared centered content width, matching the LIneA Science Platform layout. */
+.site-container {
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+#wkfw-root {
+  min-height: 60vh;
+}
+
+.alert-debug {
+  color: black;
+  background-color: white;
+  border-color: #d6e9c6;
+}
+
+.alert-error {
+  color: #b94a48;
+  background-color: #f2dede;
+  border-color: #eed3d7;
+}

@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Registration required{% endblock %}
+{% block content %}
+  <div class="alert alert-warning mt-4">
+    <h1 class="h4">Rubin / LIneA registration required</h1>
+    <a class="btn btn-primary" href="{{ settings.RUBIN_REGISTER_URL }}">Register</a>
+  </div>
+{% endblock %}

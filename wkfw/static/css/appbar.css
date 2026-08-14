@@ -1,0 +1,38 @@
+/* AppBar — LIneA Science Platform visual identity */
+
+body {
+  /* 64px compensam a navbar fixed; +24px de respiro entre o header e o conteúdo */
+  padding-top: 88px;
+}
+
+.appbar-gradient {
+  background: linear-gradient(120deg, #0989cb, #31297f);
+  min-height: 64px;
+}
+
+.appbar-logo {
+  height: 40px;
+  width: auto;
+}
+
+.appbar-gradient .nav-link {
+  color: #fff;
+  font-weight: 500;
+}
+
+.appbar-gradient .nav-link:hover,
+.appbar-gradient .nav-link:focus {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.appbar-actions {
+  gap: 0.75rem;
+}
+
+.appbar-btn {
+  letter-spacing: 0.03em;
+}
+
+.appbar-user .nav-link {
+  letter-spacing: 0.03em;
+}

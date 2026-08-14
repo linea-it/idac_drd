@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ object.username }}{% endblock %}
+{% block content %}
+  <h1 class="h4 mt-3">{{ object.username }}</h1>
+  <p>{{ object.name }} · {{ object.email }}</p>
+{% endblock %}

@@ -1,0 +1,43 @@
+services:
+  database:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      # Postgres 18+ expects the mount at /var/lib/postgresql (not .../data)
+      - wkfw_pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: compose/django/Dockerfile
+    command: >
+      bash -c "python manage.py migrate --noinput &&
+               python manage.py seed_dp2_template &&
+               python manage.py shell -c \"from django.contrib.auth import get_user_model; U=get_user_model(); U.objects.filter(username='admin').exists() or U.objects.create_superuser('admin','admin@linea.org.br','admin')\" &&
+               python manage.py runserver 0.0.0.0:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@database:5432/postgres
+      DJANGO_DEBUG: "True"
+      DJANGO_READ_DOT_ENV_FILE: "False"
+    volumes:
+      - .:/app
+    ports:
+      - "80:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+
+volumes:
+  wkfw_pg:

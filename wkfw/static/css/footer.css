@@ -1,0 +1,96 @@
+/* Footer — LIneA Science Platform visual identity */
+
+.appbar-footer {
+  margin-top: 4rem;
+}
+
+.appbar-footer .footer-inner hr {
+  margin-top: 0;
+  margin-bottom: 2rem;
+}
+
+.appbar-footer .footer-linea {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.appbar-footer .footer-linea img {
+  width: 110px;
+  height: auto;
+}
+
+.appbar-footer .footer-address {
+  font-size: 0.875rem;
+  margin-top: 1.5rem;
+}
+
+.appbar-footer .footer-hashtag {
+  margin-top: 1rem;
+  text-align: center;
+  font-weight: 500;
+  background: linear-gradient(120deg, #0989cb, #31297f);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.appbar-footer .footer-supports-label {
+  color: #a3a3a3;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.appbar-footer .footer-support-logo {
+  height: 60px;
+  width: auto;
+  max-width: 100px;
+  object-fit: contain;
+  filter: grayscale(100%);
+  transition: filter 0.3s ease;
+}
+
+.appbar-footer .footer-support-logo.footer-support-logo-sm {
+  height: 60px;
+  width: 60px;
+}
+
+.appbar-footer .footer-support-logo:hover {
+  filter: grayscale(0%);
+}
+
+.appbar-footer .footer-contact a,
+.appbar-footer .footer-trademark a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.appbar-footer .footer-contact a:hover,
+.appbar-footer .footer-trademark a:hover {
+  text-decoration: underline;
+}
+
+.appbar-footer .footer-social a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #283664;
+  border-radius: 50%;
+  color: #283664;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.appbar-footer .footer-social svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.appbar-footer .footer-trademark {
+  margin: 2rem 0;
+  text-align: center;
+  font-size: 0.875rem;
+  color: #6c757d;
+}

@@ -1,0 +1,225 @@
+import {
+  Background,
+  Controls,
+  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+  useStore,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Box, Stack, Typography } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import { computeDagState } from "../dagState";
+import { edgeStyleFor } from "../edgeStyles";
+import ActivityFlowNode from "./ActivityFlowNode";
+import LaneBandNode from "./LaneBandNode";
+import LaneLabelNode from "./LaneLabelNode";
+
+const nodeTypes = { activity: ActivityFlowNode, laneBand: LaneBandNode, laneLabel: LaneLabelNode };
+
+// selectedId: abre ?activity= com o nó focado; flash: anel no card recém-editado
+export default function ActivityDagBoard({ lanes, activities, onSelect, selectedId = null, flash = null }) {
+  return (
+    <ReactFlowProvider>
+      <DagInner
+        lanes={lanes}
+        activities={activities}
+        onSelect={onSelect}
+        selectedId={selectedId}
+        flash={flash}
+      />
+    </ReactFlowProvider>
+  );
+}
+
+function DagInner({ lanes, activities, onSelect, selectedId, flash }) {
+  const theme = useTheme();
+  const { fitView, setViewport, getViewport } = useReactFlow();
+  // dimensões do canvas vêm do store (useReactFlow não as expõe);
+  // seletores primitivos separados — objeto novo por snapshot causaria loop de render
+  const width = useStore((s) => s.width);
+  const height = useStore((s) => s.height);
+  // o zoom/posição do DAG persiste entre visualizações (troca de aba/página),
+  // por release — releases com lanes diferentes fitam por altura na primeira vez
+  const viewportKey = useMemo(
+    () => `wkfw:dagViewport:${[...lanes].map((l) => l.id).sort((a, b) => a - b).join(",")}`,
+    [lanes],
+  );
+  const { nodes, edges, graphWidth, graphHeight, graphX } = useMemo(
+    () => computeDagState(activities, lanes),
+    [activities, lanes],
+  );
+  const [revealed, setRevealed] = useState(false);
+  const [hoverId, setHoverId] = useState(null);
+  const [flashActive, setFlashActive] = useState(false);
+  // o hover só liga depois de ~250ms com o mouse parado no mesmo nó:
+  // durante zoom/pan o conteúdo desliza sob o cursor e o dim piscaria a cada frame
+  const hoverTimer = useRef(null);
+
+  // revelação progressiva: só na MONTAGEM (double rAF garante o paint inicial) —
+  // edições posteriores não re-animam o grafo inteiro
+  useEffect(() => {
+    setRevealed(false);
+    let raf1;
+    let raf2;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setRevealed(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, []);
+
+  useEffect(() => () => clearTimeout(hoverTimer.current), []);
+
+  // ao abrir: restaura o zoom/posição salvos desta release (se houver); senão,
+  // fit por ALTURA — o grafo inteiro (todas as faixas) cabe verticalmente com
+  // margem de 15%. Só na primeira vez — edições posteriores não resetam o viewport
+  const didFitHeight = useRef(false);
+  useEffect(() => {
+    if (didFitHeight.current || !width || !height || !graphHeight) return;
+    didFitHeight.current = true;
+    const saved = sessionStorage.getItem(viewportKey);
+    if (saved) {
+      try {
+        const vp = JSON.parse(saved);
+        if (typeof vp.x === "number" && typeof vp.y === "number" && typeof vp.zoom === "number") {
+          setViewport(vp);
+          return;
+        }
+      } catch {
+        // storage inválido: cai no fit-height
+      }
+    }
+    const padding = 0.15;
+    const zoom = (height * (1 - 2 * padding)) / graphHeight;
+    // borda esquerda do grafo (rótulos das faixas) alinhada à margem; y centralizado
+    setViewport({
+      x: width * padding - graphX * zoom,
+      y: (height - graphHeight * zoom) / 2,
+      zoom,
+    });
+  }, [width, height, graphHeight, graphX, setViewport, viewportKey]);
+
+  // salva o viewport ao sair do DAG (troca de aba desmonta o componente)
+  useEffect(() => {
+    return () => {
+      if (!nodes.length) return;
+      sessionStorage.setItem(viewportKey, JSON.stringify(getViewport()));
+    };
+  }, [viewportKey, nodes, getViewport]);
+
+  // anel de destaque no card recém-editado (cor do status atual), ~2.4s
+  useEffect(() => {
+    if (!flash) return;
+    setFlashActive(true);
+    const t = setTimeout(() => setFlashActive(false), 2400);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  // quando um stage é aberto via ?activity= (link direto / F5), focar o nó
+  useEffect(() => {
+    if (!selectedId || !nodes.some((n) => n.id === String(selectedId))) return;
+    const t = setTimeout(() => {
+      fitView({ nodes: [{ id: String(selectedId) }], padding: 0.6, duration: 700, maxZoom: 1 });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [selectedId, nodes, fitView]);
+
+  // vizinhos diretos do nó sob o mouse (pré-requisitos + dependentes)
+  const neighbors = useMemo(() => {
+    if (!hoverId) return new Set();
+    const s = new Set();
+    for (const e of edges) {
+      if (e.source === hoverId) s.add(e.target);
+      if (e.target === hoverId) s.add(e.source);
+    }
+    return s;
+  }, [hoverId, edges]);
+
+  const flowNodes = useMemo(
+    () =>
+      nodes.map((n) => {
+        // hover: esmaece tudo que não é o nó nem seus vizinhos diretos
+        const dim = hoverId && n.type === "activity" && n.id !== hoverId && !neighbors.has(n.id);
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            revealed,
+            dim,
+            flash: flashActive && flash?.id === n.id,
+          },
+        };
+      }),
+    [nodes, revealed, hoverId, neighbors, flashActive, flash],
+  );
+
+  // hover: arestas conectadas mais grossas, o resto esmaece; senão, estilo padrão
+  const styledEdges = useMemo(() => {
+    const connected = hoverId ? new Set() : null;
+    if (connected) {
+      for (const e of edges) {
+        if (e.source === hoverId || e.target === hoverId) connected.add(e.id);
+      }
+    }
+    return edges.map((e) => {
+      const base = edgeStyleFor(e.targetStatus, theme);
+      const isConn = connected?.has(e.id);
+      return {
+        ...e,
+        type: "smoothstep",
+        ...base,
+        style: {
+          ...base.style,
+          strokeWidth: isConn ? 2.5 : base.style.strokeWidth,
+          opacity: connected ? (isConn ? 1 : 0.15) : 1,
+        },
+      };
+    });
+  }, [edges, theme, hoverId]);
+
+  const doneCount = activities.filter((a) => a.status === "done").length;
+
+  return (
+    <Stack spacing={1}>
+      <Typography variant="body2" color="text.secondary">
+        {doneCount}/{activities.length} done · arrows point from a prerequisite to its dependents
+      </Typography>
+      <Box
+        sx={{
+          height: "calc(100vh - 230px)",
+          border: 1,
+          borderColor: "divider",
+          borderRadius: 1,
+          overflow: "hidden",
+        }}
+      >
+        <ReactFlow
+          nodes={flowNodes}
+          edges={styledEdges}
+          nodeTypes={nodeTypes}
+          nodesDraggable={false}
+          minZoom={0.1}
+          deleteKeyCode={null}
+          onNodeClick={(_, node) => node.type === "activity" && onSelect(node.data.activity)}
+          onMoveEnd={(_, viewport) => sessionStorage.setItem(viewportKey, JSON.stringify(viewport))}
+          onNodeMouseEnter={(_, node) => {
+            if (node.type !== "activity") return;
+            clearTimeout(hoverTimer.current);
+            hoverTimer.current = setTimeout(() => setHoverId(node.id), 250);
+          }}
+          onNodeMouseLeave={() => {
+            clearTimeout(hoverTimer.current);
+            setHoverId(null);
+          }}
+        >
+          <Background variant="dots" gap={24} />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </Box>
+    </Stack>
+  );
+}
