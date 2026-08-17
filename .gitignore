@@ -19,4 +19,4 @@ idac_drd/static/frontend/
 config/certificates/*.key
 config/certificates/*.cert
 !config/certificates/README.md
-docker-compose.yml
+/docker-compose.yml
