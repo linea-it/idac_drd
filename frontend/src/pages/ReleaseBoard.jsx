@@ -60,8 +60,9 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const draft = release?.status === "planned";
   const readonly = release?.status === "archived";
   const inExecution = release?.status === "active";
-  // draft é sempre editável; na execução a edição é um modo explícito (Edit → Save)
-  const canEdit = draft || (inExecution && editMode);
+  const completed = release?.status === "completed";
+  // draft é sempre editável; em active/completed a edição é um modo explícito (Edit → Save)
+  const canEdit = draft || ((inExecution || completed) && editMode);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,6 +129,16 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   async function moveActivity(activity, payload) {
     await api.post(`/api/activities/${activity.id}/move/`, payload);
     await load();
+  }
+
+  // reordenação do Kanban (setas ↑/↓): move uma posição dentro do step
+  function moveActivityDir(activity, dir) {
+    const acts = activities
+      .filter((a) => a.step === activity.step)
+      .sort((a, b) => a.order - b.order);
+    const i = acts.findIndex((a) => a.id === activity.id);
+    const after = dir < 0 ? acts[i - 2] : acts[i + 1];
+    moveActivity(activity, { step_id: activity.step, after_id: after ? after.id : null });
   }
 
   async function createActivity(payload) {
@@ -328,7 +339,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
               </Button>
             </>
           )}
-          {inExecution &&
+          {(inExecution || completed) &&
             (editMode ? (
               <Button startIcon={<SaveIcon />} variant="contained" onClick={() => setEditMode(false)}>
                 Save
@@ -373,6 +384,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
       {release?.status === "completed" && (
         <Alert severity="success">
           Completed — all {activities.length} activity{activities.length === 1 ? "" : "ies"} are done.
+          {editMode && " · Edit mode — changes are saved immediately; Save to finish."}
         </Alert>
       )}
       {readonly && <Alert severity="info">This release is archived (read-only).</Alert>}
@@ -385,6 +397,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
           activities={activities}
           onSelect={selectActivity}
           editable={canEdit}
+          onMoveActivity={moveActivityDir}
           onEditStep={(step) => {
             setEditStep(step);
             setStepLabel(step.label);

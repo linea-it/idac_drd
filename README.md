@@ -14,7 +14,7 @@ LIneA **Data Release Workflow Dashboard** — track progress from Rucio ingest t
 - **Plans** (drafts) and **releases** (official history) separated in tabs
 - Step board with status, assignee, blocked reason
 - **Hard dependency gates** (cannot start/finish until prerequisites are `done`)
-- Add steps/activities on plans and active releases
+- Add steps/activities on plans and releases (only archived are read-only)
 - Transition log → duration / bottleneck analytics
 - Archive releases (read-only); delete draft plans (any authenticated user)
 

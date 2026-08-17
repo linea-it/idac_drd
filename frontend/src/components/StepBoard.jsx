@@ -16,6 +16,7 @@ export default function StepBoard({
   onEditStep,
   onDeleteStep,
   onReorderStep,
+  onMoveActivity,
 }) {
   const firstStep = steps[0];
   const lastStep = steps[steps.length - 1];
@@ -101,7 +102,7 @@ export default function StepBoard({
             </Stack>
             </Box>
             <Stack spacing={1}>
-              {stepActs.map((activity) => (
+              {stepActs.map((activity, actIdx) => (
                 <Card
                   key={activity.id}
                   variant="outlined"
@@ -123,6 +124,32 @@ export default function StepBoard({
                             resources={activity.resources}
                             sx={{ p: 0.25, ml: "auto" }}
                           />
+                          {editable && (
+                            <Stack direction="row">
+                              <IconButton
+                                size="small"
+                                title="Move activity up"
+                                disabled={actIdx === 0}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onMoveActivity(activity, -1);
+                                }}
+                              >
+                                <ArrowUpwardIcon fontSize="small" />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                title="Move activity down"
+                                disabled={actIdx === stepActs.length - 1}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onMoveActivity(activity, 1);
+                                }}
+                              >
+                                <ArrowDownwardIcon fontSize="small" />
+                              </IconButton>
+                            </Stack>
+                          )}
                         </Stack>
                         {activity.objectives &&
                           activity.objectives
