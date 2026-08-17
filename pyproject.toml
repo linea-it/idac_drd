@@ -1,0 +1,29 @@
+# ==== black ====
+[tool.black]
+line-length = 119
+target-version = ['py314']
+
+
+# ==== isort ====
+[tool.isort]
+profile = "black"
+line_length = 119
+known_first_party = [
+    "idac_drd",
+    "config",
+]
+skip = [".venv/"]
+skip_glob = ["**/migrations/*.py"]
+
+
+# ==== autoflake ====
+[tool.autoflake]
+# return error code if changes are needed
+check = true
+# by default, only unused standard library imports are removed; specify a comma-separated list of additional
+# modules/packages
+imports = ["django", "requests", "urllib3"]
+# remove all unused imports (not just those from the standard library)
+remove-all-unused-imports = true
+# exclude __init__.py when removing unused imports
+ignore-init-module-imports = true

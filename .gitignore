@@ -7,7 +7,7 @@ db.sqlite3
 venv/
 node_modules/
 staticfiles/
-wkfw/media/
+idac_drd/media/
 logs/*.log
 .pytest_cache/
 .coverage
@@ -18,3 +18,4 @@ frontend/dist/
 config/certificates/*.key
 config/certificates/*.cert
 !config/certificates/README.md
+docker-compose.yml

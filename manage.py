@@ -20,5 +20,5 @@ if __name__ == "__main__":
         raise
 
     current_path = Path(__file__).parent.resolve()
-    sys.path.append(str(current_path / "wkfw"))
+    sys.path.append(str(current_path / "idac_drd"))
     execute_from_command_line(sys.argv)
