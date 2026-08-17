@@ -5,7 +5,7 @@ export default function AuthGate({ loginUrl }) {
     <Card elevation={2} sx={{ maxWidth: 520, mx: "auto", mt: 6 }}>
       <CardContent>
         <Stack spacing={2}>
-          <Typography variant="h5">WKFW Dashboard</Typography>
+          <Typography variant="h5">IDAC-BR Data Release Dashboard</Typography>
           <Typography variant="body2" color="text.secondary">
             Sign in to track data release workflows, assign activities, and inspect bottlenecks.
           </Typography>

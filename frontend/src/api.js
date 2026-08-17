@@ -1,5 +1,5 @@
 function getCsrf() {
-  const root = document.getElementById("wkfw-root");
+  const root = document.getElementById("idac-drd-root");
   return root?.dataset?.csrfToken || "";
 }
 
@@ -23,7 +23,12 @@ async function request(path, options = {}) {
     let detail = await res.text();
     try {
       const json = JSON.parse(detail);
-      detail = json.detail || JSON.stringify(json);
+      // ValidationError do DRF vira lista quando não é erro de campo
+      if (Array.isArray(json)) {
+        detail = json.map((x) => (x && x.message) || x).join(" ");
+      } else {
+        detail = json.detail || JSON.stringify(json);
+      }
     } catch {
       /* keep text */
     }

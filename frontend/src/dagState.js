@@ -3,18 +3,18 @@ import { displayStatus } from "./activityStatus";
 
 const CARD_WIDTH = 250; // largura do card de activity (ActivityFlowNode)
 const LEVEL_WIDTH = CARD_WIDTH + 50; // passo por nível (eixo x): vão de 50px entre cards
-const NODE_STEP = 76; // passo vertical dos nós de um grupo (mesma lane, mesmo nível)
+const NODE_GAP = 76; // passo vertical dos nós de um grupo (mesmo step, mesmo nível)
 const CARD_HEIGHT = 62; // altura real do card de activity (ActivityFlowNode)
-const LANE_LABEL_WIDTH = 180; // largura do rótulo à esquerda de cada faixa
-const LANE_LABEL_HEIGHT = 48; // altura real do rótulo
-const LANE_LABEL_X = -(LANE_LABEL_WIDTH + 24);
+const STEP_LABEL_WIDTH = 180; // largura do rótulo à esquerda de cada faixa
+const STEP_LABEL_HEIGHT = 48; // altura real do rótulo
+const STEP_LABEL_X = -(STEP_LABEL_WIDTH + 24);
 
 // Layout por nível topológico HORIZONTAL: x = profundidade de dependências (toda
 // aresta aponta para a direita por construção — sem loops nem setas "para trás"),
-// y = lane (faixas horizontais, como no Kanban). Cada faixa tem um rótulo à
+// y = step (faixas horizontais, como no Kanban). Cada faixa tem um rótulo à
 // esquerda, um divisor fino na borda inferior e os nós centralizados na faixa.
-export function computeDagState(activities, lanes) {
-  const laneOrder = [...lanes].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+export function computeDagState(activities, steps) {
+  const stepOrder = [...steps].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const byId = new Map(activities.map((a) => [a.id, a]));
 
   // nível topológico: profundidade máxima de deps (é o x do layout e o delay do reveal)
@@ -32,25 +32,25 @@ export function computeDagState(activities, lanes) {
   activities.forEach(levelOf);
   const maxLevel = Math.max(0, ...activities.map((a) => levels.get(a.id)));
 
-  // grupos: nós da mesma lane no mesmo nível colidem em y — a faixa acomoda o
+  // grupos: nós da mesmo step no mesmo nível colidem em y — a faixa acomoda o
   // maior grupo, e cada grupo é centralizado dentro da faixa
   const groupSizes = new Map();
   activities.forEach((a) => {
-    const k = `${a.lane}:${levels.get(a.id)}`;
+    const k = `${a.step}:${levels.get(a.id)}`;
     groupSizes.set(k, (groupSizes.get(k) || 0) + 1);
   });
-  const laneMax = new Map();
-  const laneTop = new Map();
+  const stepMax = new Map();
+  const stepTop = new Map();
   let y = 0;
-  for (const l of laneOrder) {
-    laneTop.set(l.id, y);
-    const laneActs = activities.filter((a) => a.lane === l.id);
+  for (const l of stepOrder) {
+    stepTop.set(l.id, y);
+    const stepActs = activities.filter((a) => a.step === l.id);
     const maxGroup = Math.max(
       0,
-      ...laneActs.map((a) => groupSizes.get(`${a.lane}:${levels.get(a.id)}`) || 0),
+      ...stepActs.map((a) => groupSizes.get(`${a.step}:${levels.get(a.id)}`) || 0),
     );
-    laneMax.set(l.id, maxGroup);
-    y += Math.max(maxGroup, 1) * NODE_STEP;
+    stepMax.set(l.id, maxGroup);
+    y += Math.max(maxGroup, 1) * NODE_GAP;
   }
 
   // y final por atividade: grupo centralizado na faixa pelo CENTRO do card —
@@ -61,14 +61,14 @@ export function computeDagState(activities, lanes) {
   [...activities]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .forEach((a) => {
-      const k = `${a.lane}:${levels.get(a.id)}`;
+      const k = `${a.step}:${levels.get(a.id)}`;
       const size = groupSizes.get(k) || 0;
-      const maxGroup = Math.max(laneMax.get(a.lane), 1);
+      const maxGroup = Math.max(stepMax.get(a.step), 1);
       const i = groupIdx.get(k) || 0;
       groupIdx.set(k, i + 1);
       yOf.set(
         a.id,
-        laneTop.get(a.lane) + ((maxGroup - size + 1) * NODE_STEP - CARD_HEIGHT) / 2 + i * NODE_STEP,
+        stepTop.get(a.step) + ((maxGroup - size + 1) * NODE_GAP - CARD_HEIGHT) / 2 + i * NODE_GAP,
       );
     });
 
@@ -76,18 +76,18 @@ export function computeDagState(activities, lanes) {
   // dimensões totais do grafo (usadas para o fit-height na abertura do board)
   const graphHeight = y; // soma das alturas de todas as faixas
 
-  const laneColor = new Map(laneOrder.map((l) => [l.id, l.color || "#000099"]));
+  const stepColor = new Map(stepOrder.map((l) => [l.id, l.color || "#000099"]));
 
   const nodes = [
     // banda de cada faixa: largura total do grafo, fundo zebrado (visível em
     // qualquer zoom) e divisor fino na borda inferior
-    ...laneOrder.map((l, idx) => ({
+    ...stepOrder.map((l, idx) => ({
       id: `band-${l.id}`,
-      type: "laneBand",
-      position: { x: 0, y: laneTop.get(l.id) },
+      type: "stepBand",
+      position: { x: 0, y: stepTop.get(l.id) },
       data: {
         width: graphWidth,
-        height: Math.max(laneMax.get(l.id), 1) * NODE_STEP,
+        height: Math.max(stepMax.get(l.id), 1) * NODE_GAP,
         alt: idx % 2 === 1,
       },
     })),
@@ -95,25 +95,25 @@ export function computeDagState(activities, lanes) {
       id: String(a.id),
       type: "activity",
       position: { x: levels.get(a.id) * LEVEL_WIDTH, y: yOf.get(a.id) },
-      data: { activity: a, level: levels.get(a.id), laneColor: laneColor.get(a.lane) },
+      data: { activity: a, level: levels.get(a.id), stepColor: stepColor.get(a.step) },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
     })),
-    ...laneOrder.map((l) => {
-      const laneActs = activities.filter((a) => a.lane === l.id);
+    ...stepOrder.map((l) => {
+      const stepActs = activities.filter((a) => a.step === l.id);
       return {
-        id: `lane-${l.id}`,
-        type: "laneLabel",
+        id: `step-${l.id}`,
+        type: "stepLabel",
         position: {
-          x: LANE_LABEL_X,
-          y: laneTop.get(l.id) + (Math.max(laneMax.get(l.id), 1) * NODE_STEP - LANE_LABEL_HEIGHT) / 2,
+          x: STEP_LABEL_X,
+          y: stepTop.get(l.id) + (Math.max(stepMax.get(l.id), 1) * NODE_GAP - STEP_LABEL_HEIGHT) / 2,
         },
         data: {
           label: l.label,
           color: l.color,
-          width: LANE_LABEL_WIDTH,
-          done: laneActs.filter((a) => a.status === "done").length,
-          total: laneActs.length,
+          width: STEP_LABEL_WIDTH,
+          done: stepActs.filter((a) => a.status === "done").length,
+          total: stepActs.length,
         },
       };
     }),
@@ -129,5 +129,5 @@ export function computeDagState(activities, lanes) {
     })),
   );
 
-  return { nodes, edges, graphWidth, graphHeight, graphX: LANE_LABEL_X };
+  return { nodes, edges, graphWidth, graphHeight, graphX: STEP_LABEL_X };
 }

@@ -13,17 +13,17 @@ import { useTheme } from "@mui/material/styles";
 import { computeDagState } from "../dagState";
 import { edgeStyleFor } from "../edgeStyles";
 import ActivityFlowNode from "./ActivityFlowNode";
-import LaneBandNode from "./LaneBandNode";
-import LaneLabelNode from "./LaneLabelNode";
+import StepBandNode from "./StepBandNode";
+import StepLabelNode from "./StepLabelNode";
 
-const nodeTypes = { activity: ActivityFlowNode, laneBand: LaneBandNode, laneLabel: LaneLabelNode };
+const nodeTypes = { activity: ActivityFlowNode, stepBand: StepBandNode, stepLabel: StepLabelNode };
 
 // selectedId: abre ?activity= com o nó focado; flash: anel no card recém-editado
-export default function ActivityDagBoard({ lanes, activities, onSelect, selectedId = null, flash = null }) {
+export default function ActivityDagBoard({ steps, activities, onSelect, selectedId = null, flash = null }) {
   return (
     <ReactFlowProvider>
       <DagInner
-        lanes={lanes}
+        steps={steps}
         activities={activities}
         onSelect={onSelect}
         selectedId={selectedId}
@@ -33,7 +33,7 @@ export default function ActivityDagBoard({ lanes, activities, onSelect, selected
   );
 }
 
-function DagInner({ lanes, activities, onSelect, selectedId, flash }) {
+function DagInner({ steps, activities, onSelect, selectedId, flash }) {
   const theme = useTheme();
   const { fitView, setViewport, getViewport } = useReactFlow();
   // dimensões do canvas vêm do store (useReactFlow não as expõe);
@@ -41,14 +41,14 @@ function DagInner({ lanes, activities, onSelect, selectedId, flash }) {
   const width = useStore((s) => s.width);
   const height = useStore((s) => s.height);
   // o zoom/posição do DAG persiste entre visualizações (troca de aba/página),
-  // por release — releases com lanes diferentes fitam por altura na primeira vez
+  // por release — releases com steps diferentes fitam por altura na primeira vez
   const viewportKey = useMemo(
-    () => `wkfw:dagViewport:${[...lanes].map((l) => l.id).sort((a, b) => a - b).join(",")}`,
-    [lanes],
+    () => `idac_drd:dagViewport:${[...steps].map((l) => l.id).sort((a, b) => a - b).join(",")}`,
+    [steps],
   );
   const { nodes, edges, graphWidth, graphHeight, graphX } = useMemo(
-    () => computeDagState(activities, lanes),
-    [activities, lanes],
+    () => computeDagState(activities, steps),
+    [activities, steps],
   );
   const [revealed, setRevealed] = useState(false);
   const [hoverId, setHoverId] = useState(null);
@@ -119,7 +119,7 @@ function DagInner({ lanes, activities, onSelect, selectedId, flash }) {
     return () => clearTimeout(t);
   }, [flash]);
 
-  // quando um stage é aberto via ?activity= (link direto / F5), focar o nó
+  // quando uma activity é aberta via ?activity= (link direto / F5), focar o nó
   useEffect(() => {
     if (!selectedId || !nodes.some((n) => n.id === String(selectedId))) return;
     const t = setTimeout(() => {

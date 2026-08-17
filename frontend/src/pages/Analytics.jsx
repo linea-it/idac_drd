@@ -83,7 +83,7 @@ export default function Analytics() {
       <Card elevation={2}>
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
-            Longest completed stages
+            Longest completed activities
           </Typography>
           <BottleneckChart rows={data?.by_key || []} />
         </CardContent>

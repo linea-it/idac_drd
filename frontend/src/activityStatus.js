@@ -9,8 +9,9 @@ export function displayStatus(activity) {
 
 // Rótulos humanizados dos chips de status (sem underscore, capitalizados).
 const STATUS_LABELS = {
-  todo: "Waiting",
+  todo: "To do",
   in_progress: "In Progress",
+  in_review: "In review",
   done: "Completed",
   blocked: "Blocked",
 };
@@ -20,8 +21,8 @@ export function statusLabel(status) {
 }
 
 const RELEASE_STATUS_LABELS = {
-  planned: "Planned",
-  active: "Active",
+  planned: "Draft",
+  active: "In execution",
   completed: "Completed",
   archived: "Archived",
 };

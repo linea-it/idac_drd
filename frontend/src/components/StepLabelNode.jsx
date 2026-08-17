@@ -1,8 +1,8 @@
 import { Box, Typography } from "@mui/material";
 
-// Cabeçalho de coluna com a largura real da faixa (data.width): todos os stages
-// da lane ficam rigorosamente dentro do limite visual da coluna.
-export default function LaneLabelNode({ data }) {
+// Cabeçalho de coluna com a largura real da faixa (data.width): todas as activities
+// desse step ficam rigorosamente dentro do limite visual da coluna.
+export default function StepLabelNode({ data }) {
   return (
     <Box
       sx={{

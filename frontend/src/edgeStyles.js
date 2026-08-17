@@ -16,6 +16,11 @@ export function edgeStyleFor(status, theme) {
       strokeWidth: 1.5,
       animated: true,
     },
+    in_review: {
+      stroke: theme.palette.secondary.main,
+      strokeWidth: 1.5,
+      animated: true,
+    },
     todo: {
       stroke: theme.palette.divider,
       strokeWidth: 1.5,
