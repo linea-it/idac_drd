@@ -27,6 +27,16 @@ docker compose up --build -d
 - App: http://127.0.0.1/ (login `admin` / `admin`, criado no primeiro boot)
 - Postgres: `localhost:5432` (`postgres` / `postgres` / `postgres`)
 
+### Dados de exemplo
+
+Importe as identidades de exemplo (assignees do board) uma única vez:
+
+```bash
+docker compose exec web python manage.py loaddata identities
+```
+
+Depois disso, novos registros são cadastrados via admin do Django.
+
 ### Frontend
 
 O build do frontend é coordenado pelo Docker (sem `node` no host):

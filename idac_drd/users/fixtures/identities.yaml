@@ -74,7 +74,7 @@
 - model: users.externalidentity
   pk: 10
   fields:
-    # email: pendente — preencher quando o username institucional for definido
+    email: luigi.silva@linea.org.br
     github_handle: luigilcsilva
     name: Luigi Silva
     slack_id: U06N6GZP4TT
