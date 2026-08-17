@@ -13,6 +13,7 @@ logs/*.log
 .coverage
 htmlcov/
 frontend/dist/
+idac_drd/static/frontend/
 *.egg-info/
 .DS_Store
 config/certificates/*.key
