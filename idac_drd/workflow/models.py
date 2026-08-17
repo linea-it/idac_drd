@@ -1,0 +1,140 @@
+from django.conf import settings
+from django.db import models
+from django.utils.text import slugify
+
+
+class DataRelease(models.Model):
+    class Status(models.TextChoices):
+        PLANNED = "planned", "Planned"
+        ACTIVE = "active", "Active"
+        COMPLETED = "completed", "Completed"
+        ARCHIVED = "archived", "Archived"
+
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=80, unique=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    # origem histórica (string): releases criadas de templates antigos guardam a key
+    template_key = models.CharField(max_length=80, blank=True, default="")
+    started_at = models.DateTimeField(null=True, blank=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_readonly(self):
+        return self.status == self.Status.ARCHIVED
+
+
+class ReleaseStep(models.Model):
+    release = models.ForeignKey(DataRelease, related_name="steps", on_delete=models.CASCADE)
+    key = models.SlugField(max_length=80)
+    label = models.CharField(max_length=200)
+    order = models.PositiveIntegerField(default=0)
+    color = models.CharField(max_length=20, blank=True, default="#000099")
+    # links de apoio (documentação, instruções): [{"label": str, "url": str}]
+    resources = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ["order", "id"]
+        unique_together = [("release", "key")]
+
+    def __str__(self):
+        return f"{self.release.slug}:{self.label}"
+
+
+class Activity(models.Model):
+    class Status(models.TextChoices):
+        TODO = "todo", "To do"
+        IN_PROGRESS = "in_progress", "In progress"
+        BLOCKED = "blocked", "Blocked"
+        IN_REVIEW = "in_review", "In review"
+        DONE = "done", "Done"
+
+    class Mode(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        NIFI = "nifi", "NiFi"
+
+    release = models.ForeignKey(DataRelease, related_name="activities", on_delete=models.CASCADE)
+    step = models.ForeignKey(ReleaseStep, related_name="activities", on_delete=models.CASCADE)
+    key = models.SlugField(max_length=120)
+    label = models.CharField(max_length=300)
+    description = models.TextField(blank=True)
+    # objetivos/checklist do activity — uma meta por linha
+    objectives = models.TextField(blank=True)
+    order = models.PositiveIntegerField(default=0)
+    depends_on = models.ManyToManyField("self", symmetrical=False, blank=True, related_name="dependents")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.TODO)
+    mode = models.CharField(max_length=20, choices=Mode.choices, default=Mode.MANUAL)
+    assignee = models.ForeignKey(
+        "users.ExternalIdentity",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_activities",
+    )
+    blocked_reason = models.TextField(blank=True)
+    notes = models.TextField(blank=True)
+    external_ref = models.CharField(max_length=255, blank=True)
+    github_repo = models.CharField(max_length=255, blank=True, default="")
+    # Referências criadas pela integração automática (issue GitHub / ticket GLPI)
+    # quando a release está em execução. Preenchidas pelo sync — nunca via API.
+    github_issue_number = models.PositiveIntegerField(null=True, blank=True)
+    github_issue_node_id = models.CharField(max_length=120, blank=True, default="")
+    # item da issue no Project V2 "Software" (status sincronizado no projeto)
+    github_project_item_id = models.CharField(max_length=120, blank=True, default="")
+    glpi_ticket_id = models.PositiveIntegerField(null=True, blank=True)
+    area = models.CharField(max_length=120, blank=True, default="")
+    size = models.CharField(max_length=120, blank=True, default="")
+    # links de apoio (documentação, instruções): [{"label": str, "url": str}]
+    resources = models.JSONField(default=list, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["order", "id"]
+        unique_together = [("release", "key")]
+        verbose_name_plural = "activities"
+
+    def __str__(self):
+        return f"{self.release.slug}:{self.label}"
+
+    def prerequisites_met(self) -> bool:
+        return not self.depends_on.exclude(status=self.Status.DONE).exists()
+
+    def next_in_step(self):
+        """Próxima activity do mesmo step (na ordem) — o aprovador natural desta.
+
+        ``None`` quando esta é a última do step (aprovada por staff).
+        """
+        return self.step.activities.filter(order__gt=self.order).order_by("order", "id").first()
+
+
+class ActivityTransition(models.Model):
+    activity = models.ForeignKey(Activity, related_name="transitions", on_delete=models.CASCADE)
+    from_status = models.CharField(max_length=20, blank=True)
+    to_status = models.CharField(max_length=20)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="activity_transitions",
+    )
+    comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]

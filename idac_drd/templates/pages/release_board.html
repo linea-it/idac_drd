@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Release Board — WKFW Dashboard{% endblock %}
+
+{% block content %}
+  {% csrf_token %}
+  <div id="idac-drd-root"
+       data-page="board"
+       data-release-slug="{{ release_slug }}"
+       data-authenticated="{% if request.user.is_authenticated %}true{% else %}false{% endif %}"
+       data-is-staff="{% if request.user.is_staff %}true{% else %}false{% endif %}"
+       data-login-url="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}?next={{ request.path }}{% endif %}"
+       data-csrf-token="{{ csrf_token }}"></div>
+{% endblock %}
+
+{% block page_js %}
+  <script type="module" src="{% static 'frontend/assets/main.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,80 @@
+# Identidades externas de assignees (email -> github_handle + slack_id).
+# Ingestão única na primeira vez: python manage.py loaddata identities
+# Depois disso, novos registros são cadastrados via admin do Django.
+# O email é sempre <username>@linea.org.br, onde username = uid do SAML (com '.' vira '_').
+# slack_ids coletados do canal C06JSRLF2JU em 2026-08-15.
+# github_handle: cruzados com autores de commits da org linea-it (2026-08-15).
+#
+# PENDENTE (email do Slack não é @linea.org.br; informar username institucional):
+#   - Bruno Moraes (U05G9UC7GM9)
+#   - Alecssander Milet (U07G92GDYQG)
+- model: users.externalidentity
+  pk: 1
+  fields:
+    email: carlosadean@linea.org.br
+    github_handle: carlosadean
+    name: Carlos Adean
+    slack_id: U0E8BJ9EX
+- model: users.externalidentity
+  pk: 2
+  fields:
+    email: julia@linea.org.br
+    github_handle: gschwend
+    name: Julia Gschwend
+    slack_id: U0E9WTGH3
+- model: users.externalidentity
+  pk: 3
+  fields:
+    email: rodrigo.boufleur@linea.org.br
+    github_handle: rcboufleur
+    name: Rodrigo Boufleur
+    slack_id: UARSZNZC7
+- model: users.externalidentity
+  pk: 4
+  fields:
+    email: mariana.pereira@linea.org.br
+    github_handle: ""
+    name: Mariana Fernandes
+    slack_id: U01EA42KUQ1
+- model: users.externalidentity
+  pk: 5
+  fields:
+    email: glauber.costa@linea.org.br
+    github_handle: glaubervila
+    name: Glauber Costa
+    slack_id: U04S3MPSZPC
+- model: users.externalidentity
+  pk: 6
+  fields:
+    email: singulani@linea.org.br
+    github_handle: crisingulani
+    name: Cristiano Singulani
+    slack_id: U060AEPBEE9
+- model: users.externalidentity
+  pk: 7
+  fields:
+    email: nubia.garcia@linea.org.br
+    github_handle: noobiagarcia
+    name: Nubia Garcia
+    slack_id: U06TA032NVC
+- model: users.externalidentity
+  pk: 8
+  fields:
+    email: eloir.troyack@linea.org.br
+    github_handle: troyack
+    name: Eloir Troyack
+    slack_id: U06N5QPTS1E
+- model: users.externalidentity
+  pk: 9
+  fields:
+    email: ldacosta@linea.org.br
+    github_handle: ""
+    name: Luiz da costa
+    slack_id: U0DVD06KF
+- model: users.externalidentity
+  pk: 10
+  fields:
+    # email: pendente — preencher quando o username institucional for definido
+    github_handle: luigilcsilva
+    name: Luigi Silva
+    slack_id: U06N6GZP4TT

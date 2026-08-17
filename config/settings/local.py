@@ -4,7 +4,7 @@ from .base import env
 DEBUG = env.bool("DJANGO_DEBUG", True)
 SECRET_KEY = env(
     "DJANGO_SECRET_KEY",
-    default="local-dev-only-change-me-wkfw-dashboard-secret-key",
+    default="local-dev-only-change-me-idac_drd-dashboard-secret-key",
 )
 ALLOWED_HOSTS = env.list(
     "ALLOWED_HOSTS",

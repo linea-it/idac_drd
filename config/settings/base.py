@@ -1,10 +1,11 @@
-"""Base settings for wkfw-dashboard."""
+"""Base settings for idac_drd-dashboard."""
+
 from pathlib import Path
 
 import environ
 
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
-APPS_DIR = BASE_DIR / "wkfw"
+APPS_DIR = BASE_DIR / "idac_drd"
 env = environ.Env()
 
 READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=True)
@@ -14,6 +15,8 @@ if READ_DOT_ENV_FILE:
         env.read_env(str(env_file))
 
 DEBUG = env.bool("DJANGO_DEBUG", False)
+# Debug do SAML (assertions em log são PII): ligado só em dev, desligável via env.
+SAML_DEBUG = env.bool("SAML_DEBUG", default=DEBUG)
 LOGGING_LEVEL = env.str("DJANGO_LOG_LEVEL", "INFO")
 TIME_ZONE = "UTC"
 LANGUAGE_CODE = "en-us"
@@ -56,8 +59,9 @@ THIRD_PARTY_APPS = [
     "drf_spectacular",
 ]
 LOCAL_APPS = [
-    "wkfw.users",
-    "wkfw.workflow",
+    "idac_drd.users",
+    "idac_drd.workflow",
+    "idac_drd.integrations",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -121,7 +125,7 @@ TEMPLATES = [
                 "django.template.context_processors.static",
                 "django.template.context_processors.tz",
                 "django.contrib.messages.context_processors.messages",
-                "wkfw.users.context_processors.allauth_settings",
+                "idac_drd.users.context_processors.allauth_settings",
                 "django_settings_export.settings_export",
             ],
         },
@@ -168,7 +172,7 @@ LOGGING = {
     "root": {"level": LOGGING_LEVEL, "handlers": ["console"]},
     "loggers": {
         "djangosaml2": {
-            "level": "DEBUG",
+            "level": "DEBUG" if SAML_DEBUG else "INFO",
             "handlers": ["djangosaml2", "console"],
             "propagate": False,
         },
@@ -179,9 +183,9 @@ ACCOUNT_ALLOW_REGISTRATION = env.bool("DJANGO_ACCOUNT_ALLOW_REGISTRATION", False
 ACCOUNT_LOGIN_METHODS = {"username"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_EMAIL_VERIFICATION = "optional"
-ACCOUNT_ADAPTER = "wkfw.users.adapters.AccountAdapter"
-ACCOUNT_FORMS = {"signup": "wkfw.users.forms.UserSignupForm"}
-SOCIALACCOUNT_ADAPTER = "wkfw.users.adapters.SocialAccountAdapter"
+ACCOUNT_ADAPTER = "idac_drd.users.adapters.AccountAdapter"
+ACCOUNT_FORMS = {"signup": "idac_drd.users.forms.UserSignupForm"}
+SOCIALACCOUNT_ADAPTER = "idac_drd.users.adapters.SocialAccountAdapter"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -189,11 +193,13 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.TokenAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    "DEFAULT_THROTTLE_CLASSES": ("rest_framework.throttling.UserRateThrottle",),
+    "DEFAULT_THROTTLE_RATES": {"user": env.str("DJANGO_THROTTLE_RATE", default="300/min")},
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 CORS_URLS_REGEX = r"^/api/.*$"
 SPECTACULAR_SETTINGS = {
-    "TITLE": "WKFW Dashboard API",
+    "TITLE": "IDAC-BR Data Release Dashboard API",
     "DESCRIPTION": "Data release workflow operations API",
     "VERSION": "1.0.0",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
@@ -226,6 +232,20 @@ SETTINGS_EXPORT = [
     "NAVBAR_DOCS_URL",
 ]
 
+# External integrations (GitHub, GLPI, Slack) — all opt-in.
+# Each integration is inert (no-op) unless its *_ENABLED flag is True.
+GH_ENABLED = env.bool("GH_ENABLED", default=False)
+GH_TOKEN = env.str("GH_TOKEN", default="")
+SLACK_ENABLED = env.bool("SLACK_ENABLED", default=False)
+SLACK_BOT_TOKEN = env.str("SLACK_BOT_TOKEN", default="")
+SLACK_CHANNEL_ID = env.str("SLACK_CHANNEL_ID", default="")
+SLACK_DEV_USER_ID = env.str("SLACK_DEV_USER_ID", default="")
+GLPI_ENABLED = env.bool("GLPI_ENABLED", default=False)
+GLPI_API_URL = env.str("GLPI_API_URL", default="")
+GLPI_USER = env.str("GLPI_USER", default="")
+GLPI_PASSWORD = env.str("GLPI_PASSWORD", default="")
+GLPI_APP_TOKEN = env.str("GLPI_APP_TOKEN", default="")
+
 if AUTH_SAML2_ENABLED:
     import saml2
 
@@ -236,9 +256,9 @@ if AUTH_SAML2_ENABLED:
     ATTR_DIR = BASE_DIR / "config" / "attribute-maps"
 
     INSTALLED_APPS += ["djangosaml2"]
-    AUTHENTICATION_BACKENDS += ["wkfw.users.saml2.LineaSaml2Backend"]
+    AUTHENTICATION_BACKENDS += ["idac_drd.users.saml2.LineaSaml2Backend"]
     MIDDLEWARE += ["djangosaml2.middleware.SamlSessionMiddleware"]
-    SAML_ACS_FAILURE_RESPONSE_FUNCTION = "wkfw.users.views.saml2_template_failure"
+    SAML_ACS_FAILURE_RESPONSE_FUNCTION = "idac_drd.users.views.saml2_template_failure"
     SAML_SESSION_COOKIE_NAME = "saml_session"
     SESSION_COOKIE_SECURE = True
     LOGIN_URL = "/login/"
@@ -284,7 +304,7 @@ if AUTH_SAML2_ENABLED:
                 "name_id_format_allow_create": False,
                 "want_response_signed": True,
                 "authn_requests_signed": True,
-                "want_assertions_signed": False,
+                "want_assertions_signed": True,
                 "only_use_keys_in_metadata": True,
                 "allow_unsolicited": False,
             },
@@ -294,7 +314,7 @@ if AUTH_SAML2_ENABLED:
                 {"url": env.str("SAML_IDP_METADATA_URL")},
             ],
         },
-        "debug": True,
+        "debug": SAML_DEBUG,
         "key_file": str(CERT_DIR / "private.key"),
         "cert_file": str(CERT_DIR / "public.cert"),
         "encryption_keypairs": [
