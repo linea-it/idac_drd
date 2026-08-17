@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from rest_framework.test import APIClient
 
+from idac_drd.integrations.github import GitHubAPIError
 from idac_drd.workflow.tests.helpers import make_release
 
 User = get_user_model()
@@ -41,7 +42,30 @@ def test_options_empty_without_token(client):
     with override_settings(GH_TOKEN=""):
         res = client.get("/api/github/options/")
     assert res.status_code == 200
-    assert res.data == {"repos": [], "areas": [], "sizes": [], "statuses": []}
+    assert res.data == {
+        "repos": [],
+        "areas": [],
+        "sizes": [],
+        "statuses": [],
+        "error": "GH_TOKEN not set",
+    }
+
+
+@pytest.mark.django_db
+@mock.patch(
+    "idac_drd.integrations.github.GitHubClient.project_single_select_options",
+    return_value=([], [], []),
+)
+@mock.patch(
+    "idac_drd.integrations.github.GitHubClient.list_org_repos",
+    side_effect=GitHubAPIError("boom"),
+)
+def test_options_includes_error_on_api_failure(mock_repos, mock_project, client):
+    with override_settings(GH_TOKEN="token"):
+        res = client.get("/api/github/options/")
+    assert res.status_code == 200
+    assert res.data["repos"] == []
+    assert res.data["error"] == "boom"
 
 
 @pytest.mark.django_db

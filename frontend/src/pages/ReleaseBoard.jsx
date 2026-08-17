@@ -43,6 +43,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const [addOpen, setAddOpen] = useState(false);
   const [view, setView] = useState("kanban");
   const [error, setError] = useState("");
+  const [githubError, setGithubError] = useState("");
   const [loading, setLoading] = useState(true);
   // anel de destaque no DAG: { id da activity editada, n incrementa a cada save }
   const [flash, setFlash] = useState(null);
@@ -82,11 +83,14 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
     } finally {
       setLoading(false);
     }
-    // best-effort: falha nos options não derruba o board
+    // best-effort: falha nos options não derruba o board; erro vira banner
     try {
-      setGithubOptions(await api.get("/api/github/options/"));
-    } catch {
+      const opts = await api.get("/api/github/options/");
+      setGithubOptions(opts);
+      setGithubError(opts.error ? `GitHub: ${opts.error}` : "");
+    } catch (err) {
       setGithubOptions({ repos: [], areas: [], sizes: [] });
+      setGithubError(err.message);
     }
   }, [releaseSlug]);
 
@@ -426,6 +430,11 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
         </Stack>
       </Stack>
       {error && <Alert severity="error">{error}</Alert>}
+      {githubError && (
+        <Alert severity="warning" onClose={() => setGithubError("")}>
+          GitHub options unavailable ({githubError}) — repo/área/size não carregados.
+        </Alert>
+      )}
       {draft && (
         <Alert severity="info">
           Draft — planning. Nothing is executed until you start the release.

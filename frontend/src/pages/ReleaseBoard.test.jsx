@@ -237,3 +237,31 @@ test("setas do Kanban reordenam atividades dentro do step", async () => {
   // após o reload a ordem trocou: First agora é o último card
   await waitFor(() => expect(within(cardOf("First")).getByTitle("Move activity down")).toBeDisabled());
 });
+
+test("options do GitHub com erro mostram banner sem derrubar o board", async () => {
+  apiMock.get.mockImplementation((path) => {
+    if (path === "/api/releases/release-smoke/") return Promise.resolve(release);
+    if (path === "/api/releases/release-smoke/activities/") return Promise.resolve([]);
+    if (path === "/api/external-identities/") return Promise.resolve([]);
+    if (path === "/api/github/options/")
+      return Promise.resolve({ repos: [], areas: [], sizes: [], error: "GH_TOKEN not set" });
+    return Promise.reject(new Error(`unexpected: ${path}`));
+  });
+  render(<ReleaseBoard releaseSlug="release-smoke" isStaff={true} />);
+  await screen.findByText("Release Smoke");
+  expect(screen.getByText(/GitHub options unavailable/)).toBeInTheDocument();
+  expect(screen.getByText(/GH_TOKEN not set/)).toBeInTheDocument();
+});
+
+test("falha de rede nos options mostra banner com a mensagem", async () => {
+  apiMock.get.mockImplementation((path) => {
+    if (path === "/api/releases/release-smoke/") return Promise.resolve(release);
+    if (path === "/api/releases/release-smoke/activities/") return Promise.resolve([]);
+    if (path === "/api/external-identities/") return Promise.resolve([]);
+    if (path === "/api/github/options/") return Promise.reject(new Error("Network Error"));
+    return Promise.reject(new Error(`unexpected: ${path}`));
+  });
+  render(<ReleaseBoard releaseSlug="release-smoke" isStaff={true} />);
+  await screen.findByText("Release Smoke");
+  expect(screen.getByText(/Network Error/)).toBeInTheDocument();
+});

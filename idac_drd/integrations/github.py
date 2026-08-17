@@ -237,15 +237,28 @@ def fetch_github_options() -> dict:
     """Repos da org + áreas/sizes do project Software, para os selects das activities.
 
     Best-effort: sem GH_TOKEN (ou em qualquer erro da API) retorna listas vazias
-    — nunca levanta. GH_ENABLED não gateia leitura; é flag de escrita.
+    — nunca levanta. GH_ENABLED não gateia leitura; é flag de escrita. Em falha,
+    inclui ``error`` (motivo) no payload para a UI avisar o usuário.
     """
     if not settings.GH_TOKEN:
-        return {"repos": [], "areas": [], "sizes": [], "statuses": []}
+        logger.warning("GH_TOKEN not set — devolvendo options vazios")
+        return {
+            "repos": [],
+            "areas": [],
+            "sizes": [],
+            "statuses": [],
+            "error": "GH_TOKEN not set",
+        }
     client = GitHubClient(settings.GH_TOKEN)
+    error = None
     try:
         repos = client.list_org_repos()
     except GitHubAPIError as exc:
         logger.warning("GitHub org repos unavailable: %s", exc)
         repos = []
+        error = str(exc)
     areas, sizes, statuses = client.project_single_select_options()
-    return {"repos": repos, "areas": areas, "sizes": sizes, "statuses": statuses}
+    payload = {"repos": repos, "areas": areas, "sizes": sizes, "statuses": statuses}
+    if error:
+        payload["error"] = error
+    return payload

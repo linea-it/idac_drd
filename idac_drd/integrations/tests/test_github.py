@@ -141,7 +141,13 @@ def test_project_single_select_options_graphql_error(mock_post, fake_response):
 
 def test_fetch_github_options_without_token():
     with override_settings(GH_TOKEN=""):
-        assert fetch_github_options() == {"repos": [], "areas": [], "sizes": [], "statuses": []}
+        assert fetch_github_options() == {
+            "repos": [],
+            "areas": [],
+            "sizes": [],
+            "statuses": [],
+            "error": "GH_TOKEN not set",
+        }
 
 
 @mock.patch("requests.post")
