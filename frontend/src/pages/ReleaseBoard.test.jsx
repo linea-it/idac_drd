@@ -113,6 +113,75 @@ test("em completed a edição também é um modo explícito (Edit → Save)", as
   expect(screen.queryByRole("button", { name: "Start execution" })).not.toBeInTheDocument();
 });
 
+test("Export plan (JSON) busca o payload e dispara o download", async () => {
+  // jsdom não provê createObjectURL/revokeObjectURL — stub para capturar o Blob
+  const createObjectURL = vi.fn(() => "blob:mock");
+  const revokeObjectURL = vi.fn();
+  URL.createObjectURL = createObjectURL;
+  URL.revokeObjectURL = revokeObjectURL;
+
+  apiMock.get.mockImplementation((path) => {
+    if (path === "/api/releases/release-smoke/") return Promise.resolve(release);
+    if (path === "/api/releases/release-smoke/activities/") return Promise.resolve([]);
+    if (path === "/api/external-identities/") return Promise.resolve([]);
+    if (path === "/api/github/options/") return Promise.resolve({ repos: [], areas: [], sizes: [] });
+    if (path === "/api/releases/release-smoke/export/")
+      return Promise.resolve({
+        format: "idac_drd-plan",
+        version: 1,
+        name: "Release Smoke",
+        steps: [],
+        activities: [],
+      });
+    return Promise.reject(new Error(`unexpected: ${path}`));
+  });
+
+  render(<ReleaseBoard releaseSlug="release-smoke" isStaff={true} />);
+  await screen.findByText("Release Smoke");
+
+  fireEvent.click(screen.getByRole("button", { name: "Export plan (JSON)" }));
+
+  await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/api/releases/release-smoke/export/"));
+  expect(createObjectURL).toHaveBeenCalled();
+  // o blob baixado é o próprio payload do export, como JSON
+  const [blob] = createObjectURL.mock.calls[0];
+  expect(blob.type).toContain("application/json");
+  expect(JSON.parse(await blob.text()).format).toBe("idac_drd-plan");
+  expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock");
+});
+
+test("em execução, Export só em edição, Download só fora; Cancel sai recarregando", async () => {
+  apiMock.get.mockImplementation((path) => {
+    if (path === "/api/releases/release-smoke/")
+      return Promise.resolve({ ...release, status: "active", started_at: "2026-08-16T10:00:00Z" });
+    if (path === "/api/releases/release-smoke/activities/") return Promise.resolve([]);
+    if (path === "/api/external-identities/") return Promise.resolve([]);
+    if (path === "/api/github/options/") return Promise.resolve({ repos: [], areas: [], sizes: [] });
+    return Promise.reject(new Error(`unexpected: ${path}`));
+  });
+  render(<ReleaseBoard releaseSlug="release-smoke" isStaff={false} />);
+  await screen.findByText("Release Smoke");
+
+  // fora do modo de edição: Export escondido, Download visível
+  expect(screen.queryByRole("button", { name: "Export plan (JSON)" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Download report" })).toBeInTheDocument();
+
+  // Edit habilita: Export aparece, Download some, Cancel + Save disponíveis
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  expect(screen.getByRole("button", { name: "Export plan (JSON)" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Download report" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+
+  // Cancel desiste: recarrega do servidor e volta ao estado anterior ao Edit
+  const getsBefore = apiMock.get.mock.calls.length;
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("button", { name: "Export plan (JSON)" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Download report" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+  await waitFor(() => expect(apiMock.get.mock.calls.length).toBeGreaterThan(getsBefore));
+});
+
 test("setas do Kanban reordenam atividades dentro do step", async () => {
   const steps = [{ id: 1, key: "step-a", label: "Step A", order: 0, color: "#0989cb", resources: [] }];
   const mk = (id, key, label, order) => ({

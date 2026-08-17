@@ -20,6 +20,7 @@ from idac_drd.workflow.api.serializers import (
     DataReleaseCreateSerializer,
     DataReleaseSerializer,
     ExternalIdentitySerializer,
+    PlanFileSerializer,
     ReleaseStepSerializer,
     ReleaseStepWriteSerializer,
     UserCreateSerializer,
@@ -35,6 +36,8 @@ from idac_drd.workflow.services import (
     delete_activity,
     delete_release_step,
     ensure_no_dependency_cycle,
+    export_plan_payload,
+    import_plan_payload,
     move_activity,
     start_release,
     transition_activity,
@@ -143,6 +146,23 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
         except WorkflowError as exc:
             raise ValidationError(str(exc)) from exc
         return Response(DataReleaseSerializer(release).data)
+
+    @action(detail=True, methods=["get"], url_path="export")
+    def export_plan(self, request, slug=None):
+        # arquivo de plan (v1): estrutura em JSON, qualquer status — o board
+        # baixa como .json; o mesmo payload alimenta POST /api/releases/import/
+        return Response(export_plan_payload(self.get_object()))
+
+    @action(detail=False, methods=["post"], url_path="import")
+    def import_plan(self, request):
+        # cria um plano (planned) a partir do arquivo de plan (v1)
+        ser = PlanFileSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            release = import_plan_payload(ser.validated_data)
+        except IntegrityError:
+            raise ValidationError("A release with this slug already exists.") from None
+        return Response(DataReleaseSerializer(release).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="steps")
     def add_step(self, request, slug=None):

@@ -5,6 +5,7 @@ from django.db.models import F
 from django.utils import timezone
 from django.utils.text import slugify
 
+from idac_drd.users.models import ExternalIdentity
 from idac_drd.workflow.models import Activity, ActivityTransition, DataRelease, ReleaseStep
 
 logger = logging.getLogger(__name__)
@@ -433,3 +434,109 @@ def delete_release_step(step: ReleaseStep) -> None:
     if step.activities.exists():
         raise WorkflowError("Only empty steps can be deleted.")
     step.delete()
+
+
+def export_plan_payload(release: DataRelease) -> dict:
+    """Serializa a estrutura de uma release no formato de arquivo de plan (v1).
+
+    Fonte canônica do shape consumido por ``import_plan_payload``: activities
+    referenciam steps por key, dependências por keys e assignee por email —
+    nenhum id sobrevive ao arquivo. Funciona para qualquer status (exportar uma
+    release executada permite planejar a próxima a partir dela).
+    """
+    steps = [
+        {
+            "key": step.key,
+            "label": step.label,
+            "order": step.order,
+            "color": step.color,
+            "resources": step.resources,
+        }
+        for step in release.steps.all()
+    ]
+    activities = []
+    for activity in release.activities.select_related("step", "assignee").all():
+        activities.append(
+            {
+                "key": activity.key,
+                "label": activity.label,
+                "step_key": activity.step.key,
+                "description": activity.description,
+                "objectives": activity.objectives,
+                "order": activity.order,
+                "mode": activity.mode,
+                "github_repo": activity.github_repo,
+                "area": activity.area,
+                "size": activity.size,
+                "resources": activity.resources,
+                "assignee_email": activity.assignee.email if activity.assignee else None,
+                "depends_on": list(activity.depends_on.order_by("order", "id").values_list("key", flat=True)),
+            }
+        )
+    return {
+        "format": "idac_drd-plan",
+        "version": 1,
+        "name": release.name,
+        "steps": steps,
+        "activities": activities,
+    }
+
+
+@transaction.atomic
+def import_plan_payload(data: dict) -> DataRelease:
+    """Cria um plano (``planned``) a partir do formato de arquivo de plan (v1).
+
+    Espelha ``_clone_structure`` com fonte JSON: steps primeiro (mapa por key),
+    activities depois (assignee por email, status sempre reseta para todo) e
+    dependências resolvidas por key num segundo passe. Sem sync de integrações:
+    a release nasce planned e a sync só roda com a release em execução.
+    """
+    release = DataRelease.objects.create(
+        name=data["name"],
+        slug=slugify(data["name"]),
+        status=DataRelease.Status.PLANNED,
+        template_key="",
+    )
+
+    step_map: dict[str, ReleaseStep] = {}
+    for step_data in data["steps"]:
+        step_map[step_data["key"]] = ReleaseStep.objects.create(
+            release=release,
+            key=step_data["key"],
+            label=step_data["label"],
+            order=step_data.get("order", 0),
+            color=step_data.get("color", "#000099"),
+            resources=step_data.get("resources", []),
+        )
+
+    emails = {a["assignee_email"] for a in data["activities"] if a.get("assignee_email")}
+    identity_by_email = {
+        identity.email.lower(): identity for identity in ExternalIdentity.objects.filter(email__in=emails)
+    }
+
+    activity_map: dict[str, Activity] = {}
+    for act_data in data["activities"]:
+        assignee_email = act_data.get("assignee_email")
+        activity_map[act_data["key"]] = Activity.objects.create(
+            release=release,
+            step=step_map[act_data["step_key"]],
+            key=act_data["key"],
+            label=act_data["label"],
+            description=act_data.get("description", ""),
+            objectives=act_data.get("objectives", ""),
+            order=act_data.get("order", 0),
+            status=Activity.Status.TODO,
+            mode=act_data.get("mode", Activity.Mode.MANUAL),
+            github_repo=act_data.get("github_repo", ""),
+            area=act_data.get("area", ""),
+            size=act_data.get("size", ""),
+            resources=act_data.get("resources", []),
+            assignee=identity_by_email.get(assignee_email.lower()) if assignee_email else None,
+        )
+
+    for act_data in data["activities"]:
+        dep_keys = act_data.get("depends_on") or []
+        if dep_keys:
+            activity_map[act_data["key"]].depends_on.set({activity_map[k].id for k in dep_keys if k in activity_map})
+
+    return release

@@ -1,6 +1,7 @@
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import EditIcon from "@mui/icons-material/Edit";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SaveIcon from "@mui/icons-material/Save";
@@ -25,7 +26,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { releaseStatusLabel } from "../activityStatus";
-import { downloadReport } from "../report";
+import { downloadReport, downloadTextFile } from "../report";
 import ActivityDagBoard from "../components/ActivityDagBoard";
 import ActivityDrawer from "../components/ActivityDrawer";
 import StepColorPicker from "../components/StepColorPicker";
@@ -172,6 +173,27 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
     }
   }
 
+  async function exportPlan() {
+    setError("");
+    try {
+      const payload = await api.get(`/api/releases/${releaseSlug}/export/`);
+      downloadTextFile(
+        `${release.slug || releaseSlug}-plan.json`,
+        JSON.stringify(payload, null, 2),
+        "application/json;charset=utf-8",
+      );
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function cancelEdit() {
+    // desiste do modo de edição: recarrega do servidor (alterações já feitas
+    // foram salvas imediatamente; o reload devolve o estado real)
+    setEditMode(false);
+    load();
+  }
+
   async function saveStep(e) {
     e.preventDefault();
     setError("");
@@ -272,7 +294,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
             Sequential gates: an activity cannot start until all prerequisites are done.
           </Typography>
         </div>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
           <Chip
             label={releaseStatusLabel(release?.status)}
             color={
@@ -304,11 +326,13 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
             <ToggleButton value="kanban">Kanban</ToggleButton>
             <ToggleButton value="dag">DAG</ToggleButton>
           </ToggleButtonGroup>
-          {canEdit && (
+          {/* construção: adicionar steps/atividades (draft ou modo de edição) */}
+          {(draft || editMode) && (
             <>
               <Button
                 startIcon={<AddIcon />}
                 variant="contained"
+                sx={{ whiteSpace: "nowrap" }}
                 onClick={() => {
                   setEditStep(null);
                   setStepLabel("");
@@ -319,54 +343,86 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
               >
                 Add step
               </Button>
-              <Button startIcon={<AddIcon />} variant="contained" onClick={() => setAddOpen(true)}>
+              <Button
+                startIcon={<AddIcon />}
+                variant="contained"
+                sx={{ whiteSpace: "nowrap" }}
+                onClick={() => setAddOpen(true)}
+              >
                 Add activity
               </Button>
             </>
           )}
+          {/* ciclo de vida: iniciar/arquivar/desarquivar */}
           {draft && isStaff && (
-            <>
-              <Button
-                startIcon={<PlayArrowIcon />}
-                variant="contained"
-                color="success"
-                onClick={() => setStartOpen(true)}
-              >
-                Start execution
-              </Button>
-              <Button variant="outlined" color="warning" onClick={archive}>
-                Archive
-              </Button>
-            </>
-          )}
-          {(inExecution || completed) &&
-            (editMode ? (
-              <Button startIcon={<SaveIcon />} variant="contained" onClick={() => setEditMode(false)}>
-                Save
-              </Button>
-            ) : (
-              <Button startIcon={<EditIcon />} variant="outlined" onClick={() => setEditMode(true)}>
-                Edit
-              </Button>
-            ))}
-          {inExecution && isStaff && (
-            <Button variant="outlined" color="warning" onClick={archive}>
-              Archive
+            <Button
+              startIcon={<PlayArrowIcon />}
+              variant="contained"
+              color="success"
+              sx={{ whiteSpace: "nowrap" }}
+              onClick={() => setStartOpen(true)}
+            >
+              Start execution
             </Button>
           )}
-          {release?.status === "completed" && isStaff && (
-            <Button variant="outlined" color="warning" onClick={archive}>
+          {(draft || inExecution || completed) && isStaff && (
+            <Button variant="outlined" color="warning" sx={{ whiteSpace: "nowrap" }} onClick={archive}>
               Archive
             </Button>
           )}
           {readonly && isStaff && (
-            <Button variant="outlined" color="success" onClick={unarchive}>
+            <Button variant="outlined" color="success" sx={{ whiteSpace: "nowrap" }} onClick={unarchive}>
               Unarchive
             </Button>
           )}
-          <Button startIcon={<DownloadIcon />} variant="outlined" onClick={download}>
-            Download report
-          </Button>
+          {/* modo de edição: Edit → Cancel (descarta) + Save (finaliza) */}
+          {(inExecution || completed) &&
+            (editMode ? (
+              // par de ação: Cancel e Save quebram juntos (wrap do pai não os separa)
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Button color="error" sx={{ whiteSpace: "nowrap" }} onClick={cancelEdit}>
+                  Cancel
+                </Button>
+                <Button
+                  startIcon={<SaveIcon />}
+                  variant="contained"
+                  sx={{ whiteSpace: "nowrap" }}
+                  onClick={() => setEditMode(false)}
+                >
+                  Save
+                </Button>
+              </Stack>
+            ) : (
+              <Button
+                startIcon={<EditIcon />}
+                variant="outlined"
+                sx={{ whiteSpace: "nowrap" }}
+                onClick={() => setEditMode(true)}
+              >
+                Edit
+              </Button>
+            ))}
+          {/* documentos: exportar o plan (em edição) / baixar o relatório (fora) */}
+          {canEdit && (
+            <Button
+              startIcon={<FileDownloadIcon />}
+              variant="outlined"
+              sx={{ whiteSpace: "nowrap" }}
+              onClick={exportPlan}
+            >
+              Export plan (JSON)
+            </Button>
+          )}
+          {!editMode && (
+            <Button
+              startIcon={<DownloadIcon />}
+              variant="outlined"
+              sx={{ whiteSpace: "nowrap" }}
+              onClick={download}
+            >
+              Download report
+            </Button>
+          )}
         </Stack>
       </Stack>
       {error && <Alert severity="error">{error}</Alert>}

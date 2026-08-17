@@ -702,15 +702,19 @@ export function buildReleaseReport(release, activities, transitions) {
   ].join("\n");
 }
 
-export function downloadReport(release, activities, transitions) {
-  const md = buildReleaseReport(release, activities, transitions);
-  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+export function downloadTextFile(filename, content, type) {
+  const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${release.slug || release.name || "release"}-workflow-report.md`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+export function downloadReport(release, activities, transitions) {
+  const md = buildReleaseReport(release, activities, transitions);
+  downloadTextFile(`${release.slug || release.name || "release"}-workflow-report.md`, md, "text/markdown;charset=utf-8");
 }

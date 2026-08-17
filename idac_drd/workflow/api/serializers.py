@@ -248,3 +248,76 @@ class DataReleaseCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     slug = serializers.SlugField(required=False, allow_blank=True)
     copy_from_release_slug = serializers.SlugField(required=False, allow_blank=True)
+
+
+class PlanStepSerializer(serializers.Serializer):
+    """Step no formato de arquivo de plan (v1)."""
+
+    key = serializers.SlugField(max_length=80)
+    label = serializers.CharField(max_length=200)
+    order = serializers.IntegerField(required=False, default=0)
+    color = serializers.CharField(max_length=20, required=False, default="#000099")
+    resources = serializers.JSONField(required=False, default=list)
+
+    def validate_resources(self, value):
+        return validate_resources(value)
+
+
+class PlanActivitySerializer(serializers.Serializer):
+    """Activity no formato de arquivo de plan (v1).
+
+    Referências por key/email em vez de ids: dependências e step não
+    sobrevivem ao arquivo, assignees são resolvidos por email no import.
+    """
+
+    key = serializers.SlugField(max_length=120)
+    label = serializers.CharField(max_length=300)
+    step_key = serializers.SlugField(max_length=80)
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    objectives = serializers.CharField(required=False, allow_blank=True, default="")
+    order = serializers.IntegerField(required=False, default=0)
+    mode = serializers.ChoiceField(choices=Activity.Mode.choices, required=False, default=Activity.Mode.MANUAL)
+    github_repo = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    area = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
+    size = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
+    resources = serializers.JSONField(required=False, default=list)
+    assignee_email = serializers.EmailField(required=False, allow_null=True, default=None)
+    depends_on = serializers.ListField(child=serializers.CharField(max_length=120), required=False, default=list)
+
+    def validate_resources(self, value):
+        return validate_resources(value)
+
+
+class PlanFileSerializer(serializers.Serializer):
+    """Arquivo de plan (v1): o que o export produz é exatamente o que o import consome."""
+
+    format = serializers.CharField(required=False, default="idac_drd-plan")
+    version = serializers.IntegerField(required=False, default=1)
+    name = serializers.CharField(max_length=200)
+    steps = PlanStepSerializer(many=True)
+    activities = PlanActivitySerializer(many=True)
+
+    def validate(self, attrs):
+        if attrs["format"] != "idac_drd-plan":
+            raise serializers.ValidationError("Unsupported plan file format.")
+        if attrs["version"] != 1:
+            raise serializers.ValidationError("Unsupported plan file version.")
+
+        step_keys = [s["key"] for s in attrs["steps"]]
+        activity_keys = [a["key"] for a in attrs["activities"]]
+        if len(set(step_keys)) != len(step_keys):
+            raise serializers.ValidationError("Duplicate step keys in the file.")
+        if len(set(activity_keys)) != len(activity_keys):
+            raise serializers.ValidationError("Duplicate activity keys in the file.")
+
+        for activity in attrs["activities"]:
+            if activity["step_key"] not in step_keys:
+                raise serializers.ValidationError(
+                    f"Activity '{activity['key']}' references unknown step key '{activity['step_key']}'."
+                )
+            for dep in activity["depends_on"]:
+                if dep not in activity_keys:
+                    raise serializers.ValidationError(
+                        f"Activity '{activity['key']}' depends on unknown activity key '{dep}'."
+                    )
+        return attrs

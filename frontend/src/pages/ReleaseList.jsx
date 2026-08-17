@@ -1,6 +1,7 @@
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SearchIcon from "@mui/icons-material/Search";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
 import {
   Alert,
   Box,
@@ -16,6 +17,7 @@ import {
   DialogTitle,
   FormControl,
   FormControlLabel,
+  FormHelperText,
   FormLabel,
   IconButton,
   InputAdornment,
@@ -184,9 +186,12 @@ export default function ReleaseList() {
   const [releases, setReleases] = useState([]);
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
-  // origem do novo plano: blank | release
+  // origem do novo plano: blank | release | json
   const [origin, setOrigin] = useState("blank");
   const [copyReleaseSlug, setCopyReleaseSlug] = useState("");
+  // plano lido do arquivo JSON (origem "json") e erro de leitura/parse
+  const [importedPlan, setImportedPlan] = useState(null);
+  const [jsonError, setJsonError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -208,16 +213,51 @@ export default function ReleaseList() {
     load();
   }, []);
 
+  function handlePlanFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permite escolher o mesmo arquivo de novo
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const plan = JSON.parse(reader.result);
+        if (!Array.isArray(plan.steps) || !Array.isArray(plan.activities)) {
+          setJsonError("Invalid plan file: steps and activities are required.");
+          setImportedPlan(null);
+          return;
+        }
+        setImportedPlan(plan);
+        setJsonError("");
+        // o nome do arquivo vira sugestão; o usuário pode trocar
+        if (!name && plan.name) setName(plan.name);
+      } catch {
+        setJsonError("Invalid JSON file.");
+        setImportedPlan(null);
+      }
+    };
+    reader.readAsText(file);
+  }
+
   async function createRelease(e) {
     e.preventDefault();
     setError("");
     try {
-      const payload = { name };
-      if (origin === "release") payload.copy_from_release_slug = copyReleaseSlug;
-      await api.post("/api/releases/", payload);
+      if (origin === "json") {
+        await api.post("/api/releases/import/", {
+          name,
+          steps: importedPlan.steps,
+          activities: importedPlan.activities,
+        });
+      } else {
+        const payload = { name };
+        if (origin === "release") payload.copy_from_release_slug = copyReleaseSlug;
+        await api.post("/api/releases/", payload);
+      }
       setName("");
       setOrigin("blank");
       setCopyReleaseSlug("");
+      setImportedPlan(null);
+      setJsonError("");
       setOpen(false);
       await load();
     } catch (err) {
@@ -238,7 +278,9 @@ export default function ReleaseList() {
     }
   }
 
-  const canCreate = Boolean(name) && (origin === "blank" || (origin === "release" && copyReleaseSlug));
+  const canCreate =
+    Boolean(name) &&
+    (origin === "blank" || (origin === "release" && copyReleaseSlug) || (origin === "json" && importedPlan));
 
   const tabDef = TABS.find((t) => t.key === tab);
   const counts = {
@@ -300,8 +342,22 @@ export default function ReleaseList() {
               <RadioGroup row value={origin} onChange={(e) => setOrigin(e.target.value)}>
                 <FormControlLabel value="blank" control={<Radio size="small" />} label="Blank plan" />
                 <FormControlLabel value="release" control={<Radio size="small" />} label="Previous release" />
+                <FormControlLabel value="json" control={<Radio size="small" />} label="JSON file" />
               </RadioGroup>
             </FormControl>
+            {origin === "json" && (
+              <FormControl size="small">
+                <Button component="label" variant="outlined" size="small" startIcon={<UploadFileIcon />}>
+                  Choose JSON file
+                  <input type="file" accept=".json,application/json" hidden onChange={handlePlanFile} />
+                </Button>
+                {jsonError ? (
+                  <FormHelperText error>{jsonError}</FormHelperText>
+                ) : (
+                  importedPlan && <FormHelperText>Plan file loaded{importedPlan.name ? `: ${importedPlan.name}` : ""}</FormHelperText>
+                )}
+              </FormControl>
+            )}
             {origin === "release" && (
               <FormControl size="small" fullWidth>
                 <InputLabel>Previous release</InputLabel>
