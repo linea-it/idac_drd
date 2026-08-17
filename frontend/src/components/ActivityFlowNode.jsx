@@ -3,6 +3,7 @@ import { Box, Chip, Stack, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { displayStatus, statusLabel } from "../activityStatus";
 import { statusColors } from "../statusColors";
+import ResourceLinks from "./ResourceLinks";
 
 export default function ActivityFlowNode({ data }) {
   const theme = useTheme();
@@ -35,8 +36,8 @@ export default function ActivityFlowNode({ data }) {
           border: 1,
           borderColor,
           borderRadius: 1,
-          // a faixa da lane a que o stage pertence (mesma cor do rótulo da faixa)
-          borderLeft: `4px solid ${data.laneColor || "#000099"}`,
+          // a faixa desse step a que a activity pertence (mesma cor do rótulo da faixa)
+          borderLeft: `4px solid ${data.stepColor || "#000099"}`,
           boxShadow: flash ? `0 0 0 3px ${flashColor}` : "none",
           px: 1.5,
           py: 1,
@@ -45,13 +46,16 @@ export default function ActivityFlowNode({ data }) {
         }}
       >
         <Stack spacing={0.5}>
-          <Typography
-            variant="body2"
-            fontWeight={600}
-            sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-          >
-            {activity.label}
-          </Typography>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <Typography
+              variant="body2"
+              fontWeight={600}
+              sx={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              {activity.label}
+            </Typography>
+            <ResourceLinks resources={activity.resources} sx={{ p: 0.25 }} />
+          </Stack>
           <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap alignItems="center">
             <Chip
               size="small"
@@ -71,7 +75,7 @@ export default function ActivityFlowNode({ data }) {
                 color="text.secondary"
                 sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
               >
-                {activity.assignee.name || activity.assignee.username}
+                {activity.assignee.name || activity.assignee.email}
               </Typography>
             )}
           </Stack>
