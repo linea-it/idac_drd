@@ -3,7 +3,7 @@
 // o esperado é computado com fmtDate/fmtDuration para não depender de TZ.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildReleaseReport, downloadReport, fmtDuration } from "./report";
+import { buildReleaseReport, downloadReport, fmtDate, fmtDuration, renderObjectives } from "./report";
 
 describe("buildReleaseReport", () => {
   it("draft sem atividades", () => {
@@ -135,6 +135,19 @@ describe("buildReleaseReport", () => {
     expect(md).toContain("token issued");
   });
 
+  it("objetivos com colchetes de persistência não duplicam a marcação", () => {
+    const release = { slug: "r1", steps: [{ id: 1, label: "Ingestão", order: 0 }] };
+    const activities = [
+      {
+        id: 1, label: "Ingerir", step: 1, status: "done", order: 0,
+        objectives: "[x] Criar schemas\n[ ] Processar ingestao",
+      },
+    ];
+    const md = renderObjectives(release, activities).join("\n");
+    expect(md).toContain("- [x] Criar schemas");
+    expect(md).not.toContain("[x] [x]");
+  });
+
   it("em execução usa durações parciais até now", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
@@ -167,6 +180,52 @@ describe("buildReleaseReport", () => {
     expect(md).toContain(expected);
     expect(md).toContain("0 to do · 1 in progress · 0 in review");
   });
+
+  it("seção 5 inclui as text revisions por atividade (e o default não renderiza a subseção)", () => {
+    const release = {
+      name: "Rel",
+      slug: "rel",
+      status: "active",
+      template_key: "",
+      started_at: null,
+      archived_at: null,
+      created_at: "2026-08-15T09:00:00Z",
+      steps: [{ id: 1, label: "Ingestão", order: 0 }],
+    };
+    const activities = [
+      {
+        id: 1, key: "a1", label: "Ingerir", description: "", objectives: "",
+        order: 0, step: 1, step_key: "ingestao", step_label: "Ingestão",
+        status: "todo", assignee: null, blocked_reason: "", mode: "manual",
+        notes: "", external_ref: "", github_repo: "", github_issue_number: null,
+        glpi_ticket_id: null, area: "", size: "", depends_on: [],
+        prerequisites_met: true, locked: false, started_at: null,
+        completed_at: null, duration_seconds: null, created_at: "2026-08-15T09:00:00Z",
+      },
+    ];
+    const textRevisions = [
+      {
+        id: 1, activity: 1, field: "notes",
+        text_before: "nota\ncom quebra", text_after: "nota nova",
+        actor: { id: 2, username: "alice" }, created_at: "2026-08-16T10:00:00Z",
+      },
+      {
+        id: 2, activity: 1, field: "notes",
+        text_before: "nota nova", text_after: "",
+        actor: { id: 2, username: "alice" }, created_at: "2026-08-17T10:00:00Z",
+      },
+    ];
+
+    const withRevs = buildReleaseReport(release, activities, [], textRevisions);
+    expect(withRevs).toContain("- **Text revisions:**");
+    // quebras de linha colapsam; campo vazio vira ""
+    expect(withRevs).toContain(`- notes — alice — ${fmtDate("2026-08-16T10:00:00Z")} — "nota com quebra" → "nota nova"`);
+    expect(withRevs).toContain(`- notes — alice — ${fmtDate("2026-08-17T10:00:00Z")} — "nota nova" → ""`);
+
+    // chamada de 3 args segue o default (sem subseção)
+    const withoutRevs = buildReleaseReport(release, activities, []);
+    expect(withoutRevs).not.toContain("Text revisions");
+  });
 });
 
 describe("downloadReport", () => {
@@ -191,6 +250,42 @@ describe("downloadReport", () => {
     const anchor = appendSpy.mock.calls[0][0];
     expect(anchor.download).toBe("rel-slug-workflow-report.md");
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock");
+  });
+
+  it("repassa as text revisions ao conteúdo do blob", async () => {
+    URL.createObjectURL = vi.fn(() => "blob:mock");
+    URL.revokeObjectURL = vi.fn();
+    const release = {
+      name: "Rel",
+      slug: "rel-slug",
+      status: "active",
+      template_key: "",
+      started_at: null,
+      archived_at: null,
+      created_at: "2026-08-15T09:00:00Z",
+      steps: [{ id: 1, label: "Ingestão", order: 0 }],
+    };
+    const activities = [
+      {
+        id: 1, key: "a1", label: "Ingerir", description: "", objectives: "",
+        order: 0, step: 1, step_key: "ingestao", step_label: "Ingestão",
+        status: "todo", assignee: null, blocked_reason: "", mode: "manual",
+        notes: "", external_ref: "", github_repo: "", github_issue_number: null,
+        glpi_ticket_id: null, area: "", size: "", depends_on: [],
+        prerequisites_met: true, locked: false, started_at: null,
+        completed_at: null, duration_seconds: null, created_at: "2026-08-15T09:00:00Z",
+      },
+    ];
+    downloadReport(release, activities, [], [
+      {
+        id: 1, activity: 1, field: "description",
+        text_before: "", text_after: "nova desc",
+        actor: { id: 2, username: "alice" }, created_at: "2026-08-16T10:00:00Z",
+      },
+    ]);
+
+    const blob = URL.createObjectURL.mock.calls[0][0];
+    expect(await blob.text()).toContain("- **Text revisions:**");
   });
 });
 

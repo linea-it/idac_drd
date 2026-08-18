@@ -29,6 +29,7 @@ export default function ActivityForm({
   open,
   steps,
   activities,
+  users = [],
   githubOptions = EMPTY_OPTIONS,
   onClose,
   onSubmit,
@@ -37,6 +38,7 @@ export default function ActivityForm({
   const [stepId, setStepId] = useState(steps[0]?.id || "");
   const [afterId, setAfterId] = useState("");
   const [dependsOnIds, setDependsOnIds] = useState([]);
+  const [assigneeId, setAssigneeId] = useState("");
   const [description, setDescription] = useState("");
   const [objectives, setObjectives] = useState("");
   const [mode, setMode] = useState("manual");
@@ -67,6 +69,7 @@ export default function ActivityForm({
         step_id: Number(stepId),
         after_id: afterId ? Number(afterId) : null,
         depends_on_ids: dependsOnIds.map(Number),
+        assignee_id: assigneeId === "" ? null : Number(assigneeId),
         description,
         objectives,
         mode,
@@ -82,6 +85,7 @@ export default function ActivityForm({
       setObjectives("");
       setAfterId("");
       setDependsOnIds([]);
+      setAssigneeId("");
       setMode("manual");
       setGithubRepo("");
       setArea("");
@@ -149,6 +153,17 @@ export default function ActivityForm({
                 {activities.map((a) => (
                   <MenuItem key={a.id} value={a.id}>
                     {a.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth size="small">
+              <InputLabel>Assignee</InputLabel>
+              <Select label="Assignee" value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+                <MenuItem value="">Unassigned</MenuItem>
+                {users.map((u) => (
+                  <MenuItem key={u.id} value={u.id}>
+                    {u.name || u.email}
                   </MenuItem>
                 ))}
               </Select>

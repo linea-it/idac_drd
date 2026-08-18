@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from idac_drd.workflow.models import Activity, ActivityTransition, DataRelease, ReleaseStep
+from idac_drd.workflow.models import Activity, ActivityTextRevision, ActivityTransition, DataRelease, ReleaseStep
 
 
 class ReleaseStepInline(admin.TabularInline):
@@ -34,3 +34,9 @@ class ActivityAdmin(admin.ModelAdmin):
 class ActivityTransitionAdmin(admin.ModelAdmin):
     list_display = ("activity", "from_status", "to_status", "actor", "created_at")
     list_filter = ("to_status",)
+
+
+@admin.register(ActivityTextRevision)
+class ActivityTextRevisionAdmin(admin.ModelAdmin):
+    list_display = ("activity", "field", "actor", "created_at")
+    list_filter = ("field",)

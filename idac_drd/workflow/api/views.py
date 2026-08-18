@@ -2,7 +2,7 @@ import statistics
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -16,6 +16,7 @@ from idac_drd.users.models import ExternalIdentity
 from idac_drd.workflow.api.serializers import (
     ActivityCreateSerializer,
     ActivitySerializer,
+    ActivityTextRevisionSerializer,
     ActivityTransitionSerializer,
     DataReleaseCreateSerializer,
     DataReleaseSerializer,
@@ -26,9 +27,10 @@ from idac_drd.workflow.api.serializers import (
     UserCreateSerializer,
     UserSerializer,
 )
-from idac_drd.workflow.models import Activity, ActivityTransition, DataRelease, ReleaseStep
+from idac_drd.workflow.models import Activity, ActivityTextRevision, ActivityTransition, DataRelease, ReleaseStep
 from idac_drd.workflow.services import (
     WorkflowError,
+    _sync_later,
     add_activity,
     add_step_to_release,
     archive_release,
@@ -46,6 +48,9 @@ from idac_drd.workflow.services import (
 )
 
 User = get_user_model()
+
+# Campos de texto rastreados por ActivityTextRevision (captura em partial_update).
+TEXT_FIELDS = ("notes", "description", "objectives")
 
 
 class UserViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
@@ -237,6 +242,7 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
                 area=data.get("area", ""),
                 size=data.get("size", ""),
                 resources=data.get("resources"),
+                assignee=data.get("assignee"),
             )
         except WorkflowError as exc:
             raise ValidationError(str(exc)) from exc
@@ -247,6 +253,12 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
         release = self.get_object()
         qs = ActivityTransition.objects.filter(activity__release=release).select_related("activity", "actor")
         return Response(ActivityTransitionSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=["get"], url_path="text-revisions")
+    def text_revisions(self, request, slug=None):
+        release = self.get_object()
+        qs = ActivityTextRevision.objects.filter(activity__release=release).select_related("activity", "actor")
+        return Response(ActivityTextRevisionSerializer(qs, many=True).data)
 
 
 class ActivityViewSet(
@@ -282,10 +294,29 @@ class ActivityViewSet(
                 )
             except WorkflowError as exc:
                 raise ValidationError(str(exc)) from exc
-        self.perform_update(serializer)
-        activity.refresh_from_db()
+        # rastro de edição dos campos de texto: snapshot antes → grava → diff.
+        # Atômico só o bloco gravação+revisões (transição/sync seguem fora);
+        # PATCH parcial não toca os campos ausentes, então o diff é seguro.
+        before = {f: (getattr(activity, f) or "") for f in TEXT_FIELDS}
+        with transaction.atomic():
+            self.perform_update(serializer)
+            activity.refresh_from_db()
+            revisions = []
+            for field, old_value in before.items():
+                new_value = getattr(activity, field) or ""
+                if new_value != old_value:
+                    revisions.append(
+                        ActivityTextRevision(
+                            activity=activity,
+                            field=field,
+                            text_before=old_value,
+                            text_after=new_value,
+                            actor=request.user,
+                        )
+                    )
+            ActivityTextRevision.objects.bulk_create(revisions)
 
-        if to_status is not None:
+        if to_status is not None and to_status != activity.status:
             if to_status == Activity.Status.BLOCKED and data.get("blocked_reason"):
                 activity.blocked_reason = data["blocked_reason"]
                 activity.save(update_fields=["blocked_reason"])
@@ -294,6 +325,11 @@ class ActivityViewSet(
             except WorkflowError as exc:
                 raise ValidationError(str(exc)) from exc
             activity.refresh_from_db()
+        else:
+            # edição sem mudança de status (assignee, label, descrição...):
+            # espelha no GLPI/GitHub agora — a sync é idempotente e decide se
+            # aplica (gate: release em execução + flags *_ENABLED)
+            _sync_later(activity, actor=request.user)
 
         return Response(ActivitySerializer(activity).data)
 

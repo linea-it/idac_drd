@@ -170,8 +170,11 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   async function download() {
     setError("");
     try {
-      const transitions = await api.get(`/api/releases/${releaseSlug}/transitions/`);
-      downloadReport(release, activities, transitions);
+      const [transitions, textRevisions] = await Promise.all([
+        api.get(`/api/releases/${releaseSlug}/transitions/`),
+        api.get(`/api/releases/${releaseSlug}/text-revisions/`),
+      ]);
+      downloadReport(release, activities, transitions, textRevisions);
     } catch (err) {
       setError(err.message);
     }
@@ -503,6 +506,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
           open={addOpen}
           steps={release?.steps || []}
           activities={activities}
+          users={users}
           githubOptions={githubOptions}
           onClose={() => setAddOpen(false)}
           onSubmit={createActivity}

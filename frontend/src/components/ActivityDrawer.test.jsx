@@ -3,6 +3,7 @@
 // draft (a execução só começa após o gesto de start).
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
+import { api } from "../api";
 import ActivityDrawer from "./ActivityDrawer";
 
 vi.mock("../api", () => ({ api: { get: vi.fn(() => Promise.resolve([])) } }));
@@ -192,9 +193,184 @@ test("em execução o status vira ação: Send to review em in_progress", async 
   );
 
   // em in_progress: botão de entrega, sem Approve
-  const sendButton = screen.getByRole("button", { name: "Send to review" });
+  const sendButton = screen.getByRole("button", { name: "Finish and send to review" });
   expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   fireEvent.click(sendButton);
   await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ status: "in_review" })));
   view.unmount();
+});
+
+test("colchetes de persistência não aparecem no dashboard e o save re-aplica a marcação", async () => {
+  const withChecked = {
+    ...activity,
+    status: "in_progress",
+    objectives: "[x] Criar schemas\n[ ] Processar ingestao",
+  };
+  const onSave = vi.fn().mockResolvedValue(undefined);
+  const view = render(
+    <ActivityDrawer
+      open
+      activity={withChecked}
+      releaseSlug="r1"
+      users={[]}
+      githubOptions={{}}
+      steps={[{ id: 1, label: "Step A" }]}
+      activities={[withChecked]}
+      readonly={false}
+      draft={false}
+      onClose={() => {}}
+      onSave={onSave}
+      onDelete={() => {}}
+      onMove={() => {}}
+    />,
+  );
+
+  // o campo mostra o texto limpo, sem [x]/[ ]
+  expect(screen.getByLabelText("Objectives")).toHaveValue("Criar schemas\nProcessar ingestao");
+
+  // o save re-grava a marcação (formato de persistência para os tickets)
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ objectives: "[x] Criar schemas\n[ ] Processar ingestao" }),
+    ),
+  );
+  view.unmount();
+});
+
+test("selecionar in_progress no select sem salvar não ativa o envio para review", async () => {
+  const onSave = vi.fn().mockResolvedValue(undefined);
+  const view = render(
+    <ActivityDrawer
+      open
+      activity={{ ...activity, status: "todo" }}
+      releaseSlug="r1"
+      users={[]}
+      githubOptions={{}}
+      steps={[{ id: 1, label: "Step A" }]}
+      activities={[activity]}
+      readonly={false}
+      draft={false}
+      onClose={() => {}}
+      onSave={onSave}
+      onDelete={() => {}}
+      onMove={() => {}}
+    />,
+  );
+
+  // todo → in_progress apenas no select: ainda não persistido
+  fireEvent.mouseDown(screen.getAllByRole("combobox")[0]);
+  fireEvent.click(await screen.findByText("In progress"));
+
+  expect(screen.queryByRole("button", { name: "Finish and send to review" })).not.toBeInTheDocument();
+  view.unmount();
+});
+
+test("em blocked não há botão de envio para review", async () => {
+  const onSave = vi.fn().mockResolvedValue(undefined);
+  const view = render(
+    <ActivityDrawer
+      open
+      activity={{ ...activity, status: "blocked", blocked_reason: "Aguardando pré-requisitos: Step 1" }}
+      releaseSlug="r1"
+      users={[]}
+      githubOptions={{}}
+      steps={[{ id: 1, label: "Step A" }]}
+      activities={[activity]}
+      readonly={false}
+      draft={false}
+      onClose={() => {}}
+      onSave={onSave}
+      onDelete={() => {}}
+      onMove={() => {}}
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "Finish and send to review" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  view.unmount();
+});
+
+test("mostra as text revisions da atividade (editar, apagar e adicionar)", async () => {
+  api.get
+    .mockResolvedValueOnce([]) // transitions
+    .mockResolvedValueOnce([
+      {
+        id: 9,
+        activity: 1,
+        field: "notes",
+        text_before: "nota velha",
+        text_after: "nota nova",
+        actor: { username: "alice" },
+        created_at: "2026-01-02T00:00:00Z",
+      },
+      {
+        id: 10,
+        activity: 1,
+        field: "notes",
+        text_before: "nota nova",
+        text_after: "",
+        actor: { username: "alice" },
+        created_at: "2026-01-03T00:00:00Z",
+      },
+      {
+        id: 11,
+        activity: 1,
+        field: "description",
+        text_before: "",
+        text_after: "nova descrição",
+        actor: { username: "alice" },
+        created_at: "2026-01-05T00:00:00Z",
+      },
+      {
+        id: 12,
+        activity: 2,
+        field: "description",
+        text_before: "",
+        text_after: "de outra atividade",
+        actor: { username: "bob" },
+        created_at: "2026-01-06T00:00:00Z",
+      },
+    ]);
+  const { unmount } = renderDrawer(false);
+
+  expect(await screen.findByText("− nota velha")).toBeInTheDocument();
+  expect(screen.getByText("+ nota nova")).toBeInTheDocument();
+  expect(screen.getByText("apagou")).toBeInTheDocument();
+  expect(screen.getByText("adicionou")).toBeInTheDocument();
+  expect(screen.getByText("+ nova descrição")).toBeInTheDocument();
+  // revisões de outras atividades ficam de fora
+  expect(screen.queryByText("de outra atividade")).not.toBeInTheDocument();
+  unmount();
+});
+
+test("blocked é deletável em draft, mas não em execução", () => {
+  const blockedActivity = { ...activity, status: "blocked", blocked_reason: "Aguardando pré-requisitos" };
+  const renderWith = (draft) =>
+    render(
+      <ActivityDrawer
+        open
+        activity={blockedActivity}
+        releaseSlug="r1"
+        users={[]}
+        githubOptions={{}}
+        steps={[{ id: 1, label: "Step A" }]}
+        activities={[blockedActivity]}
+        readonly={false}
+        draft={draft}
+        canEdit={true}
+        onClose={() => {}}
+        onSave={() => {}}
+        onDelete={() => {}}
+        onMove={() => {}}
+      />,
+    );
+
+  const draftView = renderWith(true);
+  expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  draftView.unmount();
+
+  const execView = renderWith(false);
+  expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  execView.unmount();
 });

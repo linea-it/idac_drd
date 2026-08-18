@@ -48,6 +48,12 @@ function fmtBlockquote(text) {
     .join("\n");
 }
 
+// Valor de text_before/text_after no relatório: escapa aspas (ficam dentro de
+// "…") e colapsa quebras de linha para a entrada caber numa linha.
+function fmtRevisionText(text) {
+  return (text || "").replace(/"/g, '\\"').replace(/\s+/g, " ");
+}
+
 // Sanitiza texto livre para célula de tabela: colapsa quebras de linha e
 // escapa pipes (senão a linha da tabela quebra no renderer de markdown).
 function mdCell(text) {
@@ -333,6 +339,16 @@ function groupTransitionsByActivity(transitions) {
   return map;
 }
 
+function groupTextRevisionsByActivity(textRevisions) {
+  const map = new Map();
+  const sorted = [...textRevisions].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  for (const r of sorted) {
+    if (!map.has(r.activity)) map.set(r.activity, []);
+    map.get(r.activity).push(r);
+  }
+  return map;
+}
+
 export function renderReportHeader(release, activities, durationSeconds) {
   const total = activities.length;
   const done = activities.filter((a) => a.status === "done").length;
@@ -466,7 +482,8 @@ export function renderObjectives(release, activities) {
       lines.push(`#### ${a.label}`);
       lines.push("");
       for (const obj of a.objectives.split("\n").map((s) => s.trim()).filter(Boolean)) {
-        lines.push(`- [${a.status === "done" ? "x" : " "}] ${obj}`);
+        // o prefixo [x]/[ ] é de persistência (tickets); o relatório decide a marcação
+        lines.push(`- [${a.status === "done" ? "x" : " "}] ${obj.replace(/^\[[x ]\]\s*/, "")}`);
       }
       lines.push("");
     }
@@ -476,7 +493,7 @@ export function renderObjectives(release, activities) {
 }
 
 export function renderStepsAndActivities(release, activities, ctx) {
-  const { waitTimes, leadTimes, blockPeriods, transitionsByActivity, stepStats } = ctx;
+  const { waitTimes, leadTimes, blockPeriods, transitionsByActivity, stepStats, textRevisionsByActivity } = ctx;
   const byId = new Map(activities.map((a) => [a.id, a]));
   const lines = ["## 5. Steps & Activities", ""];
   if (!activities.length) {
@@ -536,6 +553,15 @@ export function renderStepsAndActivities(release, activities, ctx) {
       if (desc) lines.push(`- **Description:**\n${desc}`);
       const notes = fmtBlockquote(a.notes);
       if (notes) lines.push(`- **Notes:**\n${notes}`);
+      const textRevs = textRevisionsByActivity.get(a.id) || [];
+      if (textRevs.length) {
+        lines.push("- **Text revisions:**");
+        for (const r of textRevs) {
+          lines.push(
+            `  - ${r.field} — ${actorName(r.actor)} — ${fmtDate(r.created_at)} — "${fmtRevisionText(r.text_before)}" → "${fmtRevisionText(r.text_after)}"`,
+          );
+        }
+      }
       lines.push("");
     }
   }
@@ -646,7 +672,7 @@ export function renderTransitionLog(transitions) {
 
 // ── API pública ─────────────────────────────────────────────────────────────
 
-export function buildReleaseReport(release, activities, transitions) {
+export function buildReleaseReport(release, activities, transitions, textRevisions = []) {
   const sortedTransitions = [...transitions].sort(
     (a, b) => new Date(a.created_at) - new Date(b.created_at),
   );
@@ -678,7 +704,11 @@ export function buildReleaseReport(release, activities, transitions) {
     dependencyStats: computeDependencyStats(activities),
   };
   metrics.stepStats = computeStepStats(release, activities, metrics.waitTimes, metrics.blockPeriods);
-  const ctx = { ...metrics, transitionsByActivity: groupTransitionsByActivity(sortedTransitions) };
+  const ctx = {
+    ...metrics,
+    transitionsByActivity: groupTransitionsByActivity(sortedTransitions),
+    textRevisionsByActivity: groupTextRevisionsByActivity(textRevisions),
+  };
   const timeline = buildTimeline(release, sortedTransitions);
 
   return [
@@ -714,7 +744,7 @@ export function downloadTextFile(filename, content, type) {
   URL.revokeObjectURL(url);
 }
 
-export function downloadReport(release, activities, transitions) {
-  const md = buildReleaseReport(release, activities, transitions);
+export function downloadReport(release, activities, transitions, textRevisions = []) {
+  const md = buildReleaseReport(release, activities, transitions, textRevisions);
   downloadTextFile(`${release.slug || release.name || "release"}-workflow-report.md`, md, "text/markdown;charset=utf-8");
 }

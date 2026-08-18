@@ -77,6 +77,7 @@ export default function ActivityDrawer({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [transitions, setTransitions] = useState([]);
+  const [textRevisions, setTextRevisions] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [checkedObjectives, setCheckedObjectives] = useState([]);
 
@@ -84,11 +85,14 @@ export default function ActivityDrawer({
     if (!activity || !releaseSlug) return;
     let cancelled = false;
     setHistoryLoading(true);
-    api
-      .get(`/api/releases/${releaseSlug}/transitions/`)
-      .then((list) => {
+    Promise.all([
+      api.get(`/api/releases/${releaseSlug}/transitions/`),
+      api.get(`/api/releases/${releaseSlug}/text-revisions/`),
+    ])
+      .then(([transitionsList, revisionsList]) => {
         if (cancelled) return;
-        setTransitions(list.filter((t) => t.activity === activity.id));
+        setTransitions(transitionsList.filter((t) => t.activity === activity.id));
+        setTextRevisions(revisionsList.filter((r) => r.activity === activity.id));
         setHistoryLoading(false);
       })
       .catch((err) => {
@@ -111,8 +115,18 @@ export default function ActivityDrawer({
     setRejectReason("");
     setLabel(activity.label);
     setDescription(activity.description || "");
-    setObjectives(activity.objectives || "");
-    setCheckedObjectives([]);
+    // colchetes são formato de persistência (tickets): o dashboard mostra o
+    // texto limpo; a marcação ([x] no texto) restaura os checkboxes
+    setObjectives(
+      (activity.objectives || "").split("\n").map((l) => l.replace(/^\[[x ]\]\s*/, "")).join("\n"),
+    );
+    const savedLines = (activity.objectives || "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    setCheckedObjectives(
+      savedLines.map((l, i) => (l.toLowerCase().startsWith("[x]") ? i : null)).filter((x) => x !== null),
+    );
     setGithubRepo(activity.github_repo || "");
     setArea(activity.area || "");
     setSize(activity.size || "");
@@ -160,12 +174,16 @@ export default function ActivityDrawer({
       notes,
       blocked_reason: blockedReason,
     };
+    // objetivos são lista de seleção do fluxo de execução: a marcação persiste
+    // mesmo sem o modo de edição estrutural (canEdit)
+    payload.objectives = objectiveLines
+      .map((line, i) => `${checkedObjectives.includes(i) ? "[x]" : "[ ]"} ${line.replace(/^\[[x ]\]\s*/, "")}`)
+      .join("\n");
     if (canEdit) {
       Object.assign(payload, {
         mode,
         label,
         description,
-        objectives,
         step_id: Number(stepId),
         depends_on_ids: dependsOnIds.map(Number),
         github_repo: githubRepo,
@@ -254,13 +272,13 @@ export default function ActivityDrawer({
                     )}
                   </Select>
                 </FormControl>
-                {!readonly && !draft && (status === "in_progress" || status === "blocked") && (
+                {!readonly && !draft && status === "in_progress" && activity.status === "in_progress" && (
                   <Button
                     variant="contained"
                     onClick={() => handleTransition("in_review")}
                     disabled={saving}
                   >
-                    Send to review
+                    Finish and send to review
                   </Button>
                 )}
                 <FormControl fullWidth size="small" disabled={readonly}>
@@ -549,6 +567,45 @@ export default function ActivityDrawer({
             ))
           )}
           <Divider />
+          <Typography variant="overline">Text revisions</Typography>
+          {historyLoading ? (
+            <LinearProgress />
+          ) : textRevisions.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No text revisions yet.
+            </Typography>
+          ) : (
+            textRevisions.map((r) => (
+              <Box key={r.id}>
+                <Stack direction="row" justifyContent="space-between" spacing={1}>
+                  <Typography variant="body2">
+                    {r.field.charAt(0).toUpperCase() + r.field.slice(1)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {r.actor?.username || "unknown"} · {new Date(r.created_at).toLocaleString()}
+                  </Typography>
+                </Stack>
+                {r.text_before && (
+                  <Typography variant="body2" color="text.secondary">
+                    − {r.text_before}
+                  </Typography>
+                )}
+                {r.text_after ? (
+                  <Typography variant="body2">+ {r.text_after}</Typography>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    apagou
+                  </Typography>
+                )}
+                {!r.text_before && r.text_after && (
+                  <Typography variant="caption" color="text.secondary">
+                    adicionou
+                  </Typography>
+                )}
+              </Box>
+            ))
+          )}
+          <Divider />
           <Stack direction="row" spacing={1}>
             <Button variant="contained" onClick={handleSave} disabled={readonly || saving}>
               Save
@@ -556,7 +613,7 @@ export default function ActivityDrawer({
             <Button variant="outlined" onClick={onClose}>
               Close
             </Button>
-            {canEdit && activity.status === "todo" && (
+            {canEdit && (draft || activity.status === "todo") && (
               <Button color="error" onClick={() => onDelete(activity)}>
                 Delete
               </Button>

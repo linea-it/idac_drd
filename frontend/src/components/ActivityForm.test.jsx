@@ -10,6 +10,8 @@ const activities = [
   { id: 3, label: "Step 3", step: 1 },
 ];
 
+const users = [{ id: 10, name: "Alice Silva", email: "alice@linea.org.br" }];
+
 function renderForm() {
   const onSubmit = vi.fn().mockResolvedValue(undefined);
   render(
@@ -17,6 +19,7 @@ function renderForm() {
       open
       steps={[{ id: 1, label: "Step A" }]}
       activities={activities}
+      users={users}
       onClose={() => {}}
       onSubmit={onSubmit}
     />,
@@ -44,4 +47,24 @@ test("add activity permite duas ou mais dependências", async () => {
   expect(onSubmit).toHaveBeenCalledWith(
     expect.objectContaining({ label: "New activity", depends_on_ids: [1, 3] }),
   );
+});
+
+test("add activity envia assignee_id quando um usuário é escolhido", async () => {
+  const onSubmit = renderForm();
+  fireEvent.change(screen.getByLabelText(/Label/), { target: { value: "Owned activity" } });
+  // Step, After, Depends on, Assignee
+  const assigneeSelect = screen.getAllByRole("combobox")[3];
+  fireEvent.mouseDown(assigneeSelect);
+  fireEvent.click(screen.getByRole("option", { name: "Alice Silva" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+  expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ assignee_id: 10 }));
+});
+
+test("add activity envia assignee_id null quando fica Unassigned", async () => {
+  const onSubmit = renderForm();
+  fireEvent.change(screen.getByLabelText(/Label/), { target: { value: "Unowned activity" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+  expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ assignee_id: null }));
 });

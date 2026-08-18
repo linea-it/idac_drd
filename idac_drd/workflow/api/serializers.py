@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from idac_drd.users.models import ExternalIdentity
-from idac_drd.workflow.models import Activity, ActivityTransition, DataRelease, ReleaseStep
+from idac_drd.workflow.models import Activity, ActivityTextRevision, ActivityTransition, DataRelease, ReleaseStep
 
 User = get_user_model()
 
@@ -192,6 +192,9 @@ class ActivityCreateSerializer(serializers.Serializer):
     label = serializers.CharField(max_length=300)
     step_id = serializers.IntegerField()
     key = serializers.SlugField(required=False, allow_blank=True)
+    assignee_id = serializers.PrimaryKeyRelatedField(
+        source="assignee", queryset=ExternalIdentity.objects.all(), allow_null=True, required=False
+    )
     description = serializers.CharField(required=False, allow_blank=True, default="")
     objectives = serializers.CharField(required=False, allow_blank=True, default="")
     after_id = serializers.IntegerField(required=False, allow_null=True)
@@ -213,6 +216,14 @@ class ActivityTransitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActivityTransition
         fields = ("id", "activity", "activity_label", "from_status", "to_status", "actor", "comment", "created_at")
+
+
+class ActivityTextRevisionSerializer(serializers.ModelSerializer):
+    actor = UserSerializer(read_only=True)
+
+    class Meta:
+        model = ActivityTextRevision
+        fields = ("id", "activity", "field", "text_before", "text_after", "actor", "created_at")
 
 
 class DataReleaseSerializer(serializers.ModelSerializer):

@@ -159,7 +159,8 @@ export default function StepBoard({
                             .map((obj, i) => (
                               <Typography key={i} variant="caption" color="text.secondary">
                                 {activity.status === "done" ? "✓ " : "○ "}
-                                {obj}
+                                {/* o prefixo [x]/[ ] é de persistência (tickets); o card mostra só o texto */}
+                                {obj.replace(/^\[[x ]\]\s*/, "")}
                               </Typography>
                             ))}
                         <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
