@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # no token; sem ele (Resource not accessible) as listas voltam vazias.
 ORG = "linea-it"
 SOFTWARE_PROJECT_NUMBER = 39
+DEFAULT_REPO = f"{ORG}/idac_drd"  # usado quando a activity não define github_repo
 
 
 class GitHubAPIError(IntegrationAPIError):
@@ -39,17 +40,28 @@ class GitHubClient:
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
-    def create_issue(self, owner: str, repo: str, title: str, body: str, labels: list[str] | None = None) -> dict:
+    def create_issue(
+        self,
+        owner: str,
+        repo: str,
+        title: str,
+        body: str,
+        labels: list[str] | None = None,
+        assignees: list[str] | None = None,
+    ) -> dict:
         """Create an issue on {owner}/{repo}.
 
         Returns the created issue dict; useful fields: ``number`` and ``html_url``
         (callers should derive the URL from owner/repo + number, not store it).
         """
+        payload = {"title": title, "body": body, "labels": labels or []}
+        if assignees:
+            payload["assignees"] = assignees
         url = f"{self.BASE_URL}/repos/{owner}/{repo}/issues"
         resp = requests.post(
             url,
             headers=self._headers(),
-            json={"title": title, "body": body, "labels": labels or []},
+            json=payload,
             timeout=self.timeout,
         )
         raise_response_error(resp, GitHubAPIError)
@@ -170,6 +182,48 @@ class GitHubClient:
                 return project["id"], node["id"], options
         raise GitHubAPIError(f"Project {org}/{project_number} has no Status single-select field")
 
+    def project_single_select_fields(
+        self, org: str = ORG, project_number: int = SOFTWARE_PROJECT_NUMBER
+    ) -> tuple[str, dict[str, tuple[str, dict]]]:
+        """Todos os campos SingleSelect de um Project V2.
+
+        Returns (project_id, {nome_normalizado: (field_id, {option: option_id})}).
+        Nomes normalizados sem acento e minúsculo ("Area", "Size", "Status") —
+        o mesmo padrão de ``project_single_select_options``. Best-effort: em
+        erro (ex.: sem read:project) retorna ("", {}) — o chamador pula o item
+        do projeto sem quebrar a sync.
+        """
+        query = (
+            f'query {{ organization(login: "{org}") {{'
+            f"projectV2(number: {project_number}) {{ id "
+            "fields(first: 100) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } }"
+            "} } }"
+        )
+        try:
+            resp = requests.post(
+                f"{self.BASE_URL}/graphql",
+                headers=self._headers(),
+                json={"query": query},
+                timeout=self.timeout,
+            )
+            raise_response_error(resp, GitHubAPIError)
+            body = resp.json()
+            # GraphQL responde 200 mesmo com erro de negócio (ex.: sem read:project)
+            if "errors" in body:
+                raise GitHubAPIError(str(body["errors"][0].get("message", body["errors"])))
+            project = body["data"]["organization"]["projectV2"]
+        except (GitHubAPIError, KeyError, TypeError, requests.RequestException) as exc:
+            logger.warning("GitHub project %s/%s fields unavailable: %s", org, project_number, exc)
+            return "", {}
+        fields: dict[str, tuple[str, dict]] = {}
+        for node in project["fields"]["nodes"] or []:
+            # normalize() remove acentos: "Área" → "area"
+            name = unicodedata.normalize("NFD", node.get("name", "").lower()).encode("ascii", "ignore").decode()
+            if not name:
+                continue
+            fields[name] = (node["id"], {o["name"]: o["id"] for o in node.get("options") or []})
+        return project["id"], fields
+
     def add_project_item(self, project_id: str, content_id: str) -> str:
         """Add an issue/PR to a Project V2; returns the new item's node id."""
         query = (
@@ -190,12 +244,12 @@ class GitHubClient:
         return body["data"]["addProjectV2ItemById"]["item"]["id"]
 
     def set_project_item_status(self, project_id: str, item_id: str, field_id: str, option_id: str) -> dict:
-        """Set the single-select field of a project item (status transition)."""
+        """Set the single-select field of a project item (status, área ou size)."""
         query = (
             "mutation { updateProjectV2ItemFieldValue(input: {"
             f'projectId: "{project_id}", itemId: "{item_id}", fieldId: "{field_id}", '
             f'value: {{ singleSelectOptionId: "{option_id}" }}'
-            "}) { project { id } } }"
+            "}) { projectV2Item { id } } }"
         )
         resp = requests.post(
             f"{self.BASE_URL}/graphql",

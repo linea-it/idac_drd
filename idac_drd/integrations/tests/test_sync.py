@@ -37,23 +37,41 @@ class FakeGithub:
     def __init__(self):
         self.created = []
         self.bodies = []
+        self.created_assignees = []
         self.updated = []
-        self.project_field_calls = 0
+        self.project_fields_calls = 0
         self.added_items = []
         self.set_statuses = []
 
-    def create_issue(self, owner, repo, title, body, labels=None):
+    def create_issue(self, owner, repo, title, body, labels=None, assignees=None):
         self.created.append((owner, repo, title))
         self.bodies.append(body)
+        self.created_assignees.append((owner, repo, title, assignees))
         return {"number": 42, "node_id": "I_kw_node42"}
 
     def update_issue(self, owner, repo, number, **fields):
         self.updated.append((owner, repo, number, fields))
         return {"number": number}
 
-    def project_field(self, org, project_number):
-        self.project_field_calls += 1
-        return PROJECT_FIELD
+    def project_single_select_fields(self, org, project_number):
+        self.project_fields_calls += 1
+        return (
+            "PVT_proj",
+            {
+                "status": ("f_status", dict(PROJECT_FIELD[2])),
+                "area": ("f_area", {"LIneA Science Platform": "o_area_lsp", "Data": "o_area_data"}),
+                "size": ("f_size", {"Small": "o_size_small", "Medium": "o_size_medium"}),
+                "priority": (
+                    "f_priority",
+                    {
+                        "🌋 Urgent": "o_prio_urgent",
+                        "🏔 High": "o_prio_high",
+                        "🏕 Medium": "o_prio_medium",
+                        "🏝 Low": "o_prio_low",
+                    },
+                ),
+            },
+        )
 
     def add_project_item(self, project_id, content_id):
         self.added_items.append((project_id, content_id))
@@ -192,9 +210,12 @@ def test_creates_issue_and_ticket(clients, release):
         activity = make_activity(release)  # todo
         sync.sync_activity(activity)
 
-    assert gh.created == [("linea-it", "repo", "Step 1")]
+    assert gh.created == [("linea-it", "repo", "Release 1 - Step A: Step 1")]
     assert gh.added_items == [("PVT_proj", "I_kw_node42")]
-    assert gh.set_statuses == [("PVT_proj", "PVTI_item42", "f_status", "o_todo")]
+    assert gh.set_statuses == [
+        ("PVT_proj", "PVTI_item42", "f_priority", "o_prio_medium"),  # default do board
+        ("PVT_proj", "PVTI_item42", "f_status", "o_todo"),
+    ]
     assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
     assert not glpi.updated  # ticket nasce new (1) — sem PUT na mesma passada
     # referências persistidas na atividade
@@ -202,6 +223,27 @@ def test_creates_issue_and_ticket(clients, release):
     assert activity.github_issue_number == 42
     assert activity.github_issue_node_id == "I_kw_node42"
     assert activity.github_project_item_id == "PVTI_item42"
+    assert activity.glpi_ticket_id == 7
+
+
+def test_blocked_issue_created_after_unblock(clients, release):
+    """Bloqueada não gera issue (paridade GLPI); desbloqueada, a sync cria."""
+    gh, glpi = clients
+    with override_settings(**ENABLED):
+        activity = make_activity(release, status=Activity.Status.BLOCKED)
+        sync.sync_activity(activity)
+        activity.refresh_from_db()
+        assert not gh.created and activity.github_issue_number is None
+        assert not glpi.created and activity.glpi_ticket_id is None
+
+        activity.status = Activity.Status.TODO  # desbloqueio (manual ou pré-requisito)
+        activity.save()
+        sync.sync_activity(activity)
+        activity.refresh_from_db()
+
+    assert gh.created == [("linea-it", "repo", "Release 1 - Step A: Step 1")]
+    assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
+    assert activity.github_issue_number == 42
     assert activity.glpi_ticket_id == 7
 
 
@@ -234,7 +276,7 @@ def test_creates_once_then_updates_status(clients, release):
 
     assert len(gh.created) == 1 and len(glpi.created) == 1
     assert len(gh.added_items) == 1  # item adicionado ao projeto uma única vez
-    assert gh.project_field_calls == 1  # field do projeto cacheado (60s)
+    assert gh.project_fields_calls == 1  # campos do projeto cacheados (60s)
     assert gh.updated == [
         ("linea-it", "repo", 42, {"state": "open"}),
         ("linea-it", "repo", 42, {"state": "open"}),
@@ -276,16 +318,154 @@ def test_blocked_maps_to_pending(clients, release):
     assert glpi.updated == [(7, {"status": 4, "pending_reason": "Atividade bloqueada"})]
 
 
-def test_without_github_repo_skips_issue_but_creates_ticket(clients, release, caplog):
+def test_without_github_repo_uses_default_repo(clients, release, caplog):
     gh, glpi = clients
     with override_settings(**ENABLED):
         activity = make_activity(release, github_repo="")  # todo
         sync.sync_activity(activity)
 
-    assert not gh.created
-    assert not gh.added_items and not gh.set_statuses
+    assert gh.created == [("linea-it", "idac_drd", "Release 1 - Step A: Step 1")]
     assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
-    assert "no GitHub repo" in caplog.text
+    assert "using default linea-it/idac_drd" in caplog.text
+
+
+def test_bare_repo_name_assumes_org(clients, release):
+    """Select do frontend grava 'idac_drd'; a sync assume a org (owner/repo)."""
+    gh, glpi = clients
+    with override_settings(**ENABLED):
+        activity = make_activity(release, github_repo="idac_drd")  # todo
+        sync.sync_activity(activity)
+
+    assert gh.created == [("linea-it", "idac_drd", "Release 1 - Step A: Step 1")]
+
+
+def test_cleanup_deleted_activity_with_bare_repo_closes_issue(clients, release):
+    """Repo pelado ('idac_drd') também fecha a issue no cleanup."""
+    gh, glpi = clients
+    with override_settings(**ENABLED):
+        activity = make_activity(release, github_repo="idac_drd")
+        sync.sync_activity(activity)
+        activity.refresh_from_db()
+        sync.cleanup_deleted_activity(
+            release_status=DataRelease.Status.ACTIVE,
+            github_repo=activity.github_repo,
+            github_issue_number=activity.github_issue_number,
+            glpi_ticket_id=activity.glpi_ticket_id,
+            label=activity.label,
+        )
+
+    assert gh.updated == [("linea-it", "idac_drd", 42, {"state": "closed", "state_reason": "not_planned"})]
+
+
+def test_cleanup_deleted_activity_without_repo_closes_default_repo_issue(clients, release):
+    """Activity sem repo (issue no padrão): delete fecha a issue no repo padrão."""
+    gh, glpi = clients
+    with override_settings(**ENABLED):
+        activity = make_activity(release, github_repo="")
+        sync.sync_activity(activity)  # cria issue no repo padrão
+        activity.refresh_from_db()
+        sync.cleanup_deleted_activity(
+            release_status=DataRelease.Status.ACTIVE,
+            github_repo=activity.github_repo,  # "" — fallback para o padrão
+            github_issue_number=activity.github_issue_number,
+            glpi_ticket_id=activity.glpi_ticket_id,
+            label=activity.label,
+        )
+
+    assert gh.updated == [("linea-it", "idac_drd", 42, {"state": "closed", "state_reason": "not_planned"})]
+    assert glpi.updated[-1] == (7, {"status": 6})
+
+
+def test_area_and_size_synced_to_project_item(clients, release):
+    """Area/Size da activity (single-select do project Software) viram campos do item."""
+    gh, glpi = clients
+    with override_settings(**ENABLED):
+        activity = make_activity(release, area="LIneA Science Platform", size="Small")  # todo
+        sync.sync_activity(activity)
+
+    area_sets = [s for s in gh.set_statuses if s[2] == "f_area"]
+    size_sets = [s for s in gh.set_statuses if s[2] == "f_size"]
+    assert area_sets == [("PVT_proj", "PVTI_item42", "f_area", "o_area_lsp")]
+    assert size_sets == [("PVT_proj", "PVTI_item42", "f_size", "o_size_small")]
+    assert any(s[2] == "f_status" for s in gh.set_statuses)  # status segue sincronizado
+
+
+def test_assignee_with_github_handle_assigned_on_issue(clients, release):
+    """Executor com github_handle (ExternalIdentity) vira assignee da issue."""
+    gh, glpi = clients
+    identity = ExternalIdentity.objects.create(
+        email="executor@linea.org.br", name="Executor Silva", github_handle="rcboufleur"
+    )
+    with override_settings(**ENABLED):
+        activity = make_activity(release, assignee=identity)  # todo
+        sync.sync_activity(activity)
+        activity.refresh_from_db()
+        activity.status = Activity.Status.IN_PROGRESS  # assignee também vai na atualização
+        activity.save()
+        sync.sync_activity(activity)
+
+    assert gh.created_assignees == [("linea-it", "repo", "Release 1 - Step A: Step 1", ["rcboufleur"])]
+    assert gh.updated == [("linea-it", "repo", 42, {"state": "open", "assignees": ["rcboufleur"]})]
+
+
+def test_assignee_without_github_handle_is_skipped(clients, release, caplog):
+    """Executor sem github_handle: warning e a issue nasce sem assignee."""
+    gh, glpi = clients
+    identity = ExternalIdentity.objects.create(email="executor@linea.org.br", name="Sem Handle")
+    with override_settings(**ENABLED):
+        activity = make_activity(release, status=Activity.Status.IN_PROGRESS, assignee=identity)
+        sync.sync_activity(activity)
+
+    assert gh.created_assignees == [("linea-it", "repo", "Release 1 - Step A: Step 1", None)]
+    assert "has no github_handle" in caplog.text
+
+
+def test_project_defaults_priority_on_item_creation(clients, release):
+    """Board: o item nasce com priority=medium — só na criação."""
+    gh, glpi = clients
+    with override_settings(**ENABLED):
+        activity = make_activity(release)  # todo
+        sync.sync_activity(activity)
+        activity.refresh_from_db()
+
+    prio = [s for s in gh.set_statuses if s[2] == "f_priority"]
+    assert prio == [("PVT_proj", "PVTI_item42", "f_priority", "o_prio_medium")]
+
+    # sync seguinte (item já existe): default não sobrescreve o board
+    gh.set_statuses.clear()
+    with override_settings(**ENABLED):
+        activity.status = Activity.Status.IN_PROGRESS
+        activity.save()
+        sync.sync_activity(activity)
+    assert not [s for s in gh.set_statuses if s[2] == "f_priority"]
+
+
+def test_issue_content_synced_on_edit(clients, release):
+    """Edição de label/descrição reescreve título e corpo da issue (snapshot)."""
+    gh, glpi = clients
+    with override_settings(**ENABLED):
+        activity = make_activity(release, description="Desc inicial")
+        sync.sync_activity(activity)
+        activity.refresh_from_db()
+        assert activity.github_issue_content  # snapshot gravado na criação
+
+        activity.label = "Step 1 alterado"
+        activity.description = "Desc editada"
+        activity.save()
+        sync.sync_activity(activity)
+        activity.refresh_from_db()
+
+    edit = gh.updated[-1][3]
+    assert edit["title"] == "Release 1 - Step A: Step 1 alterado"
+    assert "Desc editada" in edit["body"]
+    assert edit["state"] == "open"
+
+    # snapshot atualizado: a sync seguinte não reescreve título/corpo
+    n_before = len(gh.updated)
+    with override_settings(**ENABLED):
+        sync.sync_activity(activity)
+    assert len(gh.updated) == n_before + 1  # só o PATCH idempotente de state
+    assert "body" not in gh.updated[-1][3]
 
 
 def test_project_unavailable_keeps_issue_and_ticket(clients, release, caplog):
@@ -295,11 +475,11 @@ def test_project_unavailable_keeps_issue_and_ticket(clients, release, caplog):
     def boom(*args, **kwargs):
         raise RuntimeError("Resource not accessible by integration")
 
-    gh.project_field = boom
+    gh.project_single_select_fields = boom
     with override_settings(**ENABLED):
         sync.sync_activity(make_activity(release))  # todo
 
-    assert gh.created == [("linea-it", "repo", "Step 1")]
+    assert gh.created == [("linea-it", "repo", "Release 1 - Step A: Step 1")]
     assert not gh.added_items
     assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
     assert "GitHub project sync failed" in caplog.text
@@ -821,7 +1001,7 @@ def test_glpi_failure_is_logged_not_raised(clients, release, caplog):
 
     assert "GLPI sync failed" in caplog.text
     # o GitHub seguiu mesmo com o GLPI falhando
-    assert gh.created == [("linea-it", "repo", "Step 1")]
+    assert gh.created == [("linea-it", "repo", "Release 1 - Step A: Step 1")]
 
 
 def test_api_failure_is_logged_not_raised(clients, release, monkeypatch, caplog):
@@ -837,3 +1017,40 @@ def test_api_failure_is_logged_not_raised(clients, release, monkeypatch, caplog)
     assert "GitHub sync failed" in caplog.text
     # GLPI seguiu mesmo com o GitHub falhando
     assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_start_release_creates_issues_and_tickets(clients):
+    """Botão 'start executing': start_release agenda a sync e o commit cria as issues.
+
+    O caminho real da UI (POST /start/ → start_release → transaction.on_commit
+    → sync_activity) — o teste transacional deixa o on_commit rodar de verdade.
+    """
+    from idac_drd.workflow.services import start_release
+
+    gh, glpi = clients
+    release = DataRelease.objects.create(name="Release 1", slug="r-start", status=DataRelease.Status.PLANNED)
+    step = ReleaseStep.objects.create(release=release, key="a", label="Step A", color="#000099")
+    Activity.objects.create(release=release, step=step, key="s1", label="Step 1", order=0)
+    Activity.objects.create(release=release, step=step, key="s2", label="Step 2", order=1)
+    # bloqueada (ex.: pré-requisito pendente): não gera issue/ticket no start
+    Activity.objects.create(
+        release=release,
+        step=step,
+        key="s3",
+        label="Step 3",
+        order=2,
+        status=Activity.Status.BLOCKED,
+    )
+
+    with override_settings(**ENABLED):
+        start_release(release)
+
+    release.refresh_from_db()
+    assert release.status == DataRelease.Status.ACTIVE
+    assert sorted(title for _, _, title in gh.created) == [
+        "Release 1 - Step A: Step 1",
+        "Release 1 - Step A: Step 2",
+    ]
+    assert len(glpi.created) == 2  # bloqueada não gera ticket
+    assert [a.github_issue_number for a in release.activities.order_by("order")] == [42, 42, None]

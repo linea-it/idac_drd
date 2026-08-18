@@ -18,13 +18,14 @@ open/closed — todo/in_progress/blocked mapeiam para open.
 
 import logging
 import time
+import unicodedata
 from html import escape
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from idac_drd.integrations._base import IntegrationAPIError
-from idac_drd.integrations.github import ORG, SOFTWARE_PROJECT_NUMBER, _github_client
+from idac_drd.integrations.github import DEFAULT_REPO, ORG, SOFTWARE_PROJECT_NUMBER, _github_client
 from idac_drd.integrations.glpi import GlpiAPIError, _glpi_client
 from idac_drd.workflow.models import Activity, DataRelease
 
@@ -49,8 +50,13 @@ GITHUB_STATUS_HINTS = {
     Activity.Status.DONE: "done",
 }
 
-# Cache por processo do field Status do projeto (id do projeto, id do campo,
-# opções) — evita uma query GraphQL a cada transição.
+# Defaults dos campos single-select do board aplicados na criação do item no
+# projeto (priority=medium). Nomes normalizados — o board real usa emoji:
+# '🏕 Medium' casa com "medium".
+DEFAULT_PROJECT_FIELDS = {"priority": "medium"}
+
+# Cache por processo dos campos single-select do projeto
+# (project_id, {campo: (field_id, opções)}) — evita uma query GraphQL por transição.
 _PROJECT_CACHE: dict = {"ts": 0.0, "data": None}
 _PROJECT_TTL_SECONDS = 60
 
@@ -71,13 +77,24 @@ def sync_activity(activity: Activity, actor=None) -> None:
     _sync_glpi(activity, actor)
 
 
+def _resolve_repo(repo: str) -> str:
+    """Normaliza "owner/repo": nome pelado (select do frontend) assume a org."""
+    if "/" in repo:
+        return repo
+    return f"{ORG}/{repo}"
+
+
 def _sync_github(activity: Activity) -> None:
     if not settings.GH_ENABLED:
         return
-    repo = activity.github_repo  # "owner/repo"
-    if not repo or "/" not in repo:
-        logger.warning("Activity %s (%s) has no GitHub repo — no issue created", activity.key, activity.release.slug)
-        return
+    if not activity.github_repo:
+        logger.info(
+            "Activity %s (%s) has no GitHub repo — using default %s",
+            activity.key,
+            activity.release.slug,
+            DEFAULT_REPO,
+        )
+    repo = _resolve_repo(activity.github_repo or DEFAULT_REPO)  # "owner/repo"
     owner, repo_name = repo.split("/", 1)
     if owner != ORG:
         # o token de serviço só opera na org — repo fora dela seria abuso da credencial
@@ -91,66 +108,158 @@ def _sync_github(activity: Activity) -> None:
         return
     try:
         client = _github_client()
+        assignee_handle = _github_assignee_handle(activity)
+        assignee_fields = {"assignees": [assignee_handle]} if assignee_handle else {}
+        body = _issue_body(activity)
+        content_changed = body != activity.github_issue_content
         if not activity.github_issue_number:
+            # paridade com o GLPI: bloqueada não gera issue — ela nasce quando
+            # a atividade fica disponível (desbloqueio dispara a sync)
+            if activity.status == Activity.Status.BLOCKED:
+                return
             # issue recém-criada já nasce aberta — sem PATCH nesta passada
+            # mesmo título do ticket GLPI — paridade entre as duas ferramentas
             issue = client.create_issue(
                 owner,
                 repo_name,
-                title=activity.label,
-                body=_issue_body(activity),
+                title=_ticket_name(activity),
+                body=body,
+                assignees=[assignee_handle] if assignee_handle else None,
             )
             Activity.objects.filter(pk=activity.pk).update(
                 github_issue_number=issue["number"],
                 github_issue_node_id=issue.get("node_id", ""),
+                github_issue_content=body,
             )
             activity.refresh_from_db()
-        elif activity.status == Activity.Status.DONE:
-            client.update_issue(
-                owner, repo_name, activity.github_issue_number, state="closed", state_reason="completed"
-            )
         else:
-            # PATCH idempotente: garante o issue aberto (reabre se foi concluído
-            # e a atividade voltou a andar).
-            client.update_issue(owner, repo_name, activity.github_issue_number, state="open")
+            fields = dict(assignee_fields)
+            if content_changed:
+                fields["title"] = _ticket_name(activity)
+                fields["body"] = body
+            if activity.status == Activity.Status.DONE:
+                fields["state"] = "closed"
+                fields["state_reason"] = "completed"
+            else:
+                # PATCH idempotente: garante o issue aberto (reabre se foi
+                # concluído e a atividade voltou a andar).
+                fields["state"] = "open"
+            client.update_issue(owner, repo_name, activity.github_issue_number, **fields)
+            if content_changed:
+                # snapshot do que escrevemos — comparações futuras só veem o
+                # que mudou de fato (espelha o glpi_ticket_content)
+                Activity.objects.filter(pk=activity.pk).update(github_issue_content=body)
         if activity.github_issue_node_id:
-            _sync_project_status(client, activity)
+            _sync_project_fields(client, activity)
     except Exception as exc:  # noqa: BLE001 — best-effort: falha de integração nunca quebra o fluxo
         logger.warning("GitHub sync failed for activity %s: %s", activity.key, exc)
 
 
-def _sync_project_status(client, activity: Activity) -> None:
-    """Adiciona a issue ao Project V2 e atualiza o campo Status (best-effort).
+def _github_assignee_handle(activity: Activity) -> str | None:
+    """GitHub handle do executor (ExternalIdentity.github_handle), ou None.
+
+    Sem executor: não mexe no assignee da issue. Executor sem github_handle:
+    warning e a issue fica sem assignee (espelha o GLPI sem glpi_id).
+    """
+    if activity.assignee is None:
+        return None
+    if not activity.assignee.github_handle:
+        logger.warning(
+            "Activity %s (%s): assignee has no github_handle — issue not assigned",
+            activity.key,
+            activity.release.slug,
+        )
+        return None
+    return activity.assignee.github_handle
+
+
+def _sync_project_fields(client, activity: Activity) -> None:
+    """Adiciona a issue ao Project V2 e alinha Status, Área e Size (best-effort).
 
     Independente do issue open/closed: o projeto é o alinhamento de status do
     dashboard. Sem acesso ao projeto (scope/erro), o item é pulado — a issue e
-    o ticket continuam existindo.
+    o ticket continuam existindo. Área/Size só são gravados quando a activity
+    tem valor — remoção do campo não limpa o valor no projeto. Na criação do
+    item, DEFAULT_PROJECT_FIELDS aplica os defaults do board (priority=medium)
+    — mudanças manuais no board não são sobrescritas nas syncs seguintes.
     """
     try:
-        project_id, field_id, option_ids = _project_status_field(client)
-        option_id = _status_option_id(option_ids, activity.status)
-        if option_id is None:
-            logger.warning(
-                "No Project V2 status option matches activity status %r (options: %s)",
-                activity.status,
-                list(option_ids),
-            )
-            return
+        project_id, fields = _project_single_select_fields(client)
+        if not fields:
+            return  # sem acesso ao projeto (scope/erro) — item não é criado
         item_id = activity.github_project_item_id
         if not item_id:
             item_id = client.add_project_item(project_id, activity.github_issue_node_id)
             Activity.objects.filter(pk=activity.pk).update(github_project_item_id=item_id)
             activity.refresh_from_db()
-        client.set_project_item_status(project_id, item_id, field_id, option_id)
+            # defaults do board só na criação do item; campo ausente no board
+            # é pulado em silêncio (o default passa a valer se o campo surgir)
+            for name, value in DEFAULT_PROJECT_FIELDS.items():
+                field = fields.get(name)
+                if not field:
+                    continue
+                option_id = _match_option(field[1], value)
+                if option_id is None:
+                    logger.warning(
+                        "Activity %s (%s): no %s option matches default %r (options: %s)",
+                        activity.key,
+                        activity.release.slug,
+                        name,
+                        value,
+                        list(field[1]),
+                    )
+                    continue
+                client.set_project_item_status(project_id, item_id, field[0], option_id)
+        for name, (field_id, option_ids) in fields.items():
+            option_id = _project_field_value(name, option_ids, activity)
+            if option_id is None:
+                continue
+            client.set_project_item_status(project_id, item_id, field_id, option_id)
     except Exception as exc:  # noqa: BLE001 — best-effort: o item no projeto é um extra
         logger.warning("GitHub project sync failed for activity %s: %s", activity.key, exc)
 
 
-def _project_status_field(client) -> tuple[str, str, dict]:
+def _project_single_select_fields(client) -> tuple[str, dict[str, tuple[str, dict]]]:
+    """(project_id, {nome normalizado: (field_id, {opção: option_id})}) — cacheado."""
     now = time.time()
     if _PROJECT_CACHE["data"] is None or now - _PROJECT_CACHE["ts"] > _PROJECT_TTL_SECONDS:
-        _PROJECT_CACHE["data"] = client.project_field(ORG, SOFTWARE_PROJECT_NUMBER)
+        _PROJECT_CACHE["data"] = client.project_single_select_fields(ORG, SOFTWARE_PROJECT_NUMBER)
         _PROJECT_CACHE["ts"] = now
     return _PROJECT_CACHE["data"]
+
+
+def _match_option(option_ids: dict, source: str) -> str | None:
+    """Option_id cujo nome normalizado casa com ``source`` (None = não existe)."""
+    target = _normalize(source)
+    for option, option_id in option_ids.items():
+        if _normalize(option) == target:
+            return option_id
+    return None
+
+
+def _project_field_value(name: str, option_ids: dict, activity: Activity) -> str | None:
+    """Option_id do campo single-select correspondente à activity (None = pular)."""
+    if name == "status":
+        return _status_option_id(option_ids, activity.status)
+    source = {"area": activity.area, "size": activity.size}.get(name)
+    if not source:
+        return None  # activity sem valor — não mexe no campo do projeto
+    option_id = _match_option(option_ids, source)
+    if option_id is None:
+        logger.warning(
+            "Activity %s (%s): no %s option matches %r (options: %s)",
+            activity.key,
+            activity.release.slug,
+            name,
+            source,
+            list(option_ids),
+        )
+    return option_id
+
+
+def _normalize(text: str) -> str:
+    """Minúsculas sem acentos nem emoji — "🏕 Medium" → "medium" (padrão dos nomes)."""
+    return unicodedata.normalize("NFD", text.lower()).encode("ascii", "ignore").decode().strip()
 
 
 def _status_option_id(option_ids: dict, status: str) -> str | None:
@@ -477,6 +586,7 @@ def cleanup_deleted_activity(release_status, github_repo, github_issue_number, g
     """
     if release_status not in (DataRelease.Status.ACTIVE, DataRelease.Status.COMPLETED):
         return
+    github_repo = _resolve_repo(github_repo or DEFAULT_REPO)
     if settings.GH_ENABLED and github_issue_number and github_repo and "/" in github_repo:
         owner, repo_name = github_repo.split("/", 1)
         if owner == ORG:

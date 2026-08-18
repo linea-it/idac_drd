@@ -95,6 +95,10 @@ class Activity(models.Model):
     github_issue_node_id = models.CharField(max_length=120, blank=True, default="")
     # item da issue no Project V2 "Software" (status sincronizado no projeto)
     github_project_item_id = models.CharField(max_length=120, blank=True, default="")
+    # último corpo da issue gravado pela sync, no formato que escrevemos. O
+    # label vive no corpo (_ticket_name), então título e corpo mudam juntos;
+    # NULL = legado, reescreve a issue na primeira sync.
+    github_issue_content = models.TextField(null=True, blank=True)
     glpi_ticket_id = models.PositiveIntegerField(null=True, blank=True)
     # último corpo do ticket gravado pela sync, no formato que escrevemos. A
     # comparação de conteúdo usa este snapshot e não o GET do GLPI (que pode
