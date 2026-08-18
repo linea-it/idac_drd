@@ -1,4 +1,5 @@
 import logging
+import re
 
 from django.db import transaction
 from django.db.models import F
@@ -27,15 +28,27 @@ def _safe(call, *args):
         logger.exception("Integration callback %s failed", getattr(call, "__name__", call))
 
 
-def _sync_later(activity: Activity) -> None:
+def _sync_later(activity: Activity, *, actor=None) -> None:
     """Agenda a sync de integrações (GitHub/GLPI) para depois do commit.
 
     As chamadas HTTP nunca rodam dentro de uma transação aberta. A própria sync
-    decide se aplica (gate: release em execução + flags *_ENABLED).
+    decide se aplica (gate: release em execução + flags *_ENABLED). ``actor``
+    (quem fez a mudança) vai para a nota do ticket quando não há transição.
     """
     from idac_drd.integrations.sync import sync_activity
 
-    transaction.on_commit(lambda: _safe(sync_activity, activity))
+    transaction.on_commit(lambda: _safe(sync_activity, activity, actor))
+
+
+def _notify_ready_later(activity: Activity) -> None:
+    """Agenda o aviso de "pronta para iniciar" (Slack ao assignee + canal).
+
+    Disparado quando a atividade entra em todo com assignee: desbloqueio de
+    pré-requisitos, criação em release em execução e início da release.
+    """
+    from idac_drd.integrations.notify import notify_ready
+
+    transaction.on_commit(lambda: _safe(notify_ready, activity))
 
 
 def _notify_review_later(activity: Activity) -> None:
@@ -57,12 +70,31 @@ def _notify_rejection_later(activity: Activity, comment: str, reviewer=None) -> 
     transaction.on_commit(lambda: _safe(notify_rejection, activity, comment, reviewer_name))
 
 
+def _notify_started_later(release: DataRelease) -> None:
+    """Agenda o aviso de início de release (Slack no canal) para depois do commit."""
+    from idac_drd.integrations.notify import notify_release_started
+
+    transaction.on_commit(lambda: _safe(notify_release_started, release))
+
+
+def _notify_complete_later(release: DataRelease) -> None:
+    """Agenda o aviso de conclusão de release (Slack no canal) para depois do commit."""
+    from idac_drd.integrations.notify import notify_release_complete
+
+    transaction.on_commit(lambda: _safe(notify_release_complete, release))
+
+
+def _strip_marks(objectives: str) -> str:
+    """Colchetes [x]/[ ] são marcação de execução — a cópia nasce limpa."""
+    return "\n".join(re.sub(r"^\[[x ]\]\s*", "", line) for line in (objectives or "").splitlines())
+
+
 def _clone_structure(source_steps, source_items, target: DataRelease) -> DataRelease:
     """Copia steps + activities de uma release de origem para a release-alvo.
 
     Itens precisam expor step, key, label, description, objectives, order,
     mode, github_repo, area, size, assignee e depends_on. Status sempre reseta
-    para todo.
+    para todo e a marcação [x]/[ ] dos objetivos é zerada.
     """
     step_map: dict[str, ReleaseStep] = {}
     for step in source_steps.all():
@@ -83,7 +115,7 @@ def _clone_structure(source_steps, source_items, target: DataRelease) -> DataRel
             key=item.key,
             label=item.label,
             description=item.description,
-            objectives=item.objectives,
+            objectives=_strip_marks(item.objectives),
             order=item.order,
             status=Activity.Status.TODO,
             mode=item.mode,
@@ -99,6 +131,7 @@ def _clone_structure(source_steps, source_items, target: DataRelease) -> DataRel
         dep_ids = [item_map[dep.id].id for dep in item.depends_on.all() if dep.id in item_map]
         if dep_ids:
             activity.depends_on.set(dep_ids)
+        _block_until_prerequisites(activity)
         # releases clonadas já em execução criam issues/tickets para cada activity
         _sync_later(activity)
     return target
@@ -154,6 +187,36 @@ def _assert_mutable(release: DataRelease) -> None:
         raise WorkflowError("Archived releases are read-only.")
 
 
+def _unblock_ready_dependents(activity: Activity) -> None:
+    """Conclusão desbloqueia dependentes: atividades bloqueadas por pré-requisito
+    (motivo automático) com todos os pré-requisitos atendidos voltam para todo —
+    e a sync agenda o ticket, já que a atividade ficou disponível."""
+    for dep in activity.dependents.filter(status=Activity.Status.BLOCKED):
+        if (
+            dep.blocked_reason
+            and dep.blocked_reason.startswith("Aguardando pré-requisitos")
+            and dep.prerequisites_met()
+        ):
+            dep.status = Activity.Status.TODO
+            dep.blocked_reason = ""
+            dep.save(update_fields=["status", "blocked_reason", "updated_at"])
+            _sync_later(dep)
+            _notify_ready_later(dep)
+
+
+def _block_until_prerequisites(activity: Activity) -> None:
+    """Atividade com pré-requisitos pendentes nasce bloqueada.
+
+    Sem isso ela viraria ticket no GLPI mesmo sem poder ser executada (poluía o
+    helpdesk). O motivo automático sai quando a atividade for movida para todo.
+    """
+    pending = list(activity.depends_on.exclude(status=Activity.Status.DONE).values_list("label", flat=True))
+    if pending:
+        activity.status = Activity.Status.BLOCKED
+        activity.blocked_reason = "Aguardando pré-requisitos: " + ", ".join(pending)
+        activity.save(update_fields=["status", "blocked_reason"])
+
+
 def transition_activity(
     activity: Activity,
     *,
@@ -184,8 +247,8 @@ def transition_activity(
         return activity
 
     if to_status == Activity.Status.IN_REVIEW:
-        if from_status not in (Activity.Status.IN_PROGRESS, Activity.Status.BLOCKED):
-            raise WorkflowError("Only in-progress (or unblocked) activities can be sent to review.")
+        if from_status != Activity.Status.IN_PROGRESS:
+            raise WorkflowError("Only in-progress activities can be sent to review.")
     elif to_status == Activity.Status.DONE:
         # done = aprovação: só de in_review e pelo aprovador certo
         if from_status != Activity.Status.IN_REVIEW:
@@ -199,6 +262,9 @@ def transition_activity(
 
     now = timezone.now()
     activity.status = to_status
+    if from_status == Activity.Status.BLOCKED and to_status != Activity.Status.BLOCKED:
+        # saiu do bloqueio (ex.: pré-requisitos atendidos) — o motivo não vale mais
+        activity.blocked_reason = ""
     if to_status == Activity.Status.IN_PROGRESS and not activity.started_at:
         activity.started_at = now
     if to_status == Activity.Status.DONE:
@@ -214,13 +280,21 @@ def transition_activity(
         actor=actor,
         comment=comment,
     )
-    sync_release_completion(activity.release)
+    if to_status == Activity.Status.DONE:
+        _unblock_ready_dependents(activity)
+    completed = sync_release_completion(activity.release)
     _sync_later(activity)
+    if completed and activity.release.status == DataRelease.Status.COMPLETED:
+        # fechar o ciclo: a última aprovação avisa o time (não o caminho inverso)
+        _notify_complete_later(activity.release)
     if to_status == Activity.Status.IN_REVIEW:
         _notify_review_later(activity)
     elif to_status == Activity.Status.IN_PROGRESS and from_status == Activity.Status.IN_REVIEW:
         # rejeição da revisão: avisa o executor para corrigir
         _notify_rejection_later(activity, comment, actor)
+    elif to_status == Activity.Status.TODO and from_status != Activity.Status.TODO:
+        # desbloqueio manual (ex.: pré-requisitos já atendidos): é a vez do assignee
+        _notify_ready_later(activity)
     return activity
 
 
@@ -255,6 +329,7 @@ def add_activity(
     area: str = "",
     size: str = "",
     resources: list | None = None,
+    assignee: ExternalIdentity | None = None,
 ) -> Activity:
     _assert_mutable(release)
     if step.release_id != release.id:
@@ -287,6 +362,7 @@ def add_activity(
         area=area,
         size=size,
         resources=resources or [],
+        assignee=assignee,
     )
 
     deps = []
@@ -296,7 +372,15 @@ def add_activity(
         deps.extend(list(Activity.objects.filter(release=release, id__in=depends_on_ids)))
     if deps:
         activity.depends_on.set({d.id for d in deps})
+    _block_until_prerequisites(activity)
     _sync_later(activity)
+    if (
+        activity.release.status == DataRelease.Status.ACTIVE
+        and activity.assignee_id
+        and activity.status == Activity.Status.TODO
+    ):
+        # release em execução: a atividade nova nasce pronta — o assignee precisa saber
+        _notify_ready_later(activity)
     return activity
 
 
@@ -322,6 +406,8 @@ def move_activity(activity: Activity, *, step: ReleaseStep, after: Activity | No
     activity.step = step
     activity.order = new_order
     activity.save(update_fields=["step", "order", "updated_at"])
+    # o título do ticket contém o label do step — re-sincroniza após mover
+    _sync_later(activity)
     return activity
 
 
@@ -345,11 +431,32 @@ def ensure_no_dependency_cycle(nodes, node_id: int, new_dep_ids: list[int]) -> N
 @transaction.atomic
 def delete_activity(activity: Activity) -> None:
     _assert_mutable(activity.release)
-    if activity.status != Activity.Status.TODO:
-        raise WorkflowError("Only todo activities can be deleted.")
+    # em draft qualquer status é removível (blocked nasce de deps pendentes e
+    # nada começou); em execução só atividades que ainda não começaram (todo)
+    if activity.release.status != DataRelease.Status.PLANNED and activity.status != Activity.Status.TODO:
+        raise WorkflowError("Only todo activities can be deleted in execution.")
     if activity.dependents.exists():
         raise WorkflowError("Activity has dependents; remove or rewire them first.")
+    # integrações: fecha a issue/ticket órfãos depois do commit (best-effort)
+    _cleanup_after_delete_later(
+        release_status=activity.release.status,
+        github_repo=activity.github_repo,
+        github_issue_number=activity.github_issue_number,
+        glpi_ticket_id=activity.glpi_ticket_id,
+        label=activity.label,
+    )
     activity.delete()
+
+
+def _cleanup_after_delete_later(*, release_status, github_repo, github_issue_number, glpi_ticket_id, label) -> None:
+    """Agenda o fechamento de issue/ticket de uma atividade removida (on_commit)."""
+    from idac_drd.integrations.sync import cleanup_deleted_activity
+
+    transaction.on_commit(
+        lambda: _safe(
+            cleanup_deleted_activity, release_status, github_repo, github_issue_number, glpi_ticket_id, label
+        )
+    )
 
 
 def archive_release(release: DataRelease) -> DataRelease:
@@ -378,9 +485,13 @@ def start_release(release: DataRelease) -> DataRelease:
     release.status = DataRelease.Status.ACTIVE
     release.started_at = timezone.now()
     release.save(update_fields=["status", "started_at", "updated_at"])
+    # âncoras das threads antes dos replies (on_commit roda em ordem FIFO)
+    _notify_started_later(release)
     # ao iniciar a execução, todo activity vira issue/ticket nas integrações
     for activity in release.activities.all():
         _sync_later(activity)
+        if activity.assignee_id and activity.status == Activity.Status.TODO:
+            _notify_ready_later(activity)
     return release
 
 
@@ -426,6 +537,9 @@ def update_release_step(
     if resources is not None:
         step.resources = resources
     step.save()
+    # o título do ticket contém o label do step — re-sincroniza as atividades
+    for activity in step.activities.all():
+        _sync_later(activity)
     return step
 
 
@@ -538,5 +652,6 @@ def import_plan_payload(data: dict) -> DataRelease:
         dep_keys = act_data.get("depends_on") or []
         if dep_keys:
             activity_map[act_data["key"]].depends_on.set({activity_map[k].id for k in dep_keys if k in activity_map})
+        _block_until_prerequisites(activity_map[act_data["key"]])
 
     return release

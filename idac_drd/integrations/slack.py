@@ -22,10 +22,12 @@ class SlackClient:
         self.timeout = timeout
 
     def _post(self, method: str, payload: dict) -> dict:
+        # form-urlencoded é o formato canônico do Slack; JSON body é ignorado
+        # por alguns workspaces (erro "missing required field" com campo presente).
         resp = requests.post(
             f"{self.BASE_URL}/{method}",
             headers={"Authorization": f"Bearer {self.bot_token}"},
-            json=payload,
+            data=payload,
             timeout=self.timeout,
         )
         try:
@@ -39,7 +41,12 @@ class SlackClient:
             )
         if not data.get("ok"):
             # Slack reports most API errors as HTTP 200 with ok:false.
-            raise SlackAPIError(f"Slack API error: {data.get('error')}")
+            # response_metadata.messages aponta o campo/escopo exato do erro.
+            detail = data.get("error")
+            meta = data.get("response_metadata", {}).get("messages")
+            if meta:
+                detail = f"{detail}: {'; '.join(meta)}"
+            raise SlackAPIError(f"Slack API error: {detail}")
         return data
 
     def lookup_user_by_email(self, email: str) -> str:
@@ -57,11 +64,19 @@ class SlackClient:
     def send_dm_to_user(self, user_id: str, text: str) -> dict:
         """Send a DM to a Slack user id (opens the DM if needed)."""
         channel = self._post("conversations.open", {"users": user_id})
-        return self._post("chat.postMessage", {"channel": channel["channel"]["id"], "text": text, "as_user": False})
+        # as_user foi removido da API (deprecated_argument) — bot posta como bot.
+        return self._post("chat.postMessage", {"channel": channel["channel"]["id"], "text": text})
 
-    def post_to_channel(self, channel_id: str, text: str) -> dict:
-        """Post a message to a channel the bot has joined."""
-        return self._post("chat.postMessage", {"channel": channel_id, "text": text, "as_user": False})
+    def post_to_channel(self, channel_id: str, text: str, thread_ts: str | None = None) -> dict:
+        """Post a message to a channel the bot has joined.
+
+        ``thread_ts`` (timestamp de uma mensagem do mesmo canal) posta a
+        mensagem como reply naquela thread.
+        """
+        payload = {"channel": channel_id, "text": text}
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        return self._post("chat.postMessage", payload)
 
     def check(self) -> bool:
         """Validate the bot token via auth.test."""
@@ -85,7 +100,7 @@ def send_slack_dm(email: str, text: str) -> dict | None:
     return _slack_client().send_dm(email, text)
 
 
-def post_slack_message(text: str) -> dict | None:
+def post_slack_message(text: str, thread_ts: str | None = None) -> dict | None:
     """Post a message — to SLACK_CHANNEL_ID when set, else DM to SLACK_DEV_USER_ID (dev fallback).
 
     Only when SLACK_ENABLED=True. Returns None (no-op) when the integration is disabled.
@@ -94,7 +109,7 @@ def post_slack_message(text: str) -> dict | None:
         return None
     client = _slack_client()
     if settings.SLACK_CHANNEL_ID:
-        return client.post_to_channel(settings.SLACK_CHANNEL_ID, text)
+        return client.post_to_channel(settings.SLACK_CHANNEL_ID, text, thread_ts=thread_ts)
     if settings.SLACK_DEV_USER_ID:
         return client.send_dm_to_user(settings.SLACK_DEV_USER_ID, text)
     raise ImproperlyConfigured(

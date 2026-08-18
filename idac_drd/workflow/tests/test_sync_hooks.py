@@ -12,8 +12,11 @@ from idac_drd.workflow.services import (
     add_activity,
     add_step_to_release,
     create_plan,
+    delete_activity,
+    move_activity,
     start_release,
     transition_activity,
+    update_release_step,
 )
 from idac_drd.workflow.tests.helpers import make_release
 
@@ -72,11 +75,57 @@ def test_clone_into_active_release_queues_each_activity(queued, db):
     assert sorted(a.key for a in queued) == ["step-1", "step-2"]
 
 
+def test_clone_strips_objective_marks(db):
+    # marcação [x]/[ ] é de execução: a release clonada nasce com objetivos limpos
+    source = make_release("Source", status="active")
+    act = source.activities.get(key="step-1")
+    act.objectives = "[x] Criar schemas\n[ ] Processar ingestao"
+    act.save(update_fields=["objectives"])
+    clone = create_plan(name="R", copy_from_release=source)
+    assert clone.activities.get(key="step-1").objectives == "Criar schemas\nProcessar ingestao"
+
+
+def test_move_activity_queues_sync(active_release, queued):
+    # o título do ticket contém o label do step — mover re-sincroniza
+    act = add_activity(active_release, label="Step 1", step=active_release.steps.get())
+    step_b = add_step_to_release(active_release, label="Step B")
+    queued.clear()
+    move_activity(act, step=step_b)
+    assert queued == [act]
+
+
+def test_rename_step_queues_sync_of_its_activities(active_release, queued):
+    act = add_activity(active_release, label="Step 1", step=active_release.steps.get())
+    queued.clear()
+    update_release_step(active_release.steps.get(), label="Step A v2")
+    assert queued == [act]
+
+
+def test_delete_activity_queues_cleanup(active_release, monkeypatch):
+    cleanup_calls = []
+    monkeypatch.setattr(
+        "idac_drd.workflow.services._cleanup_after_delete_later",
+        lambda **kwargs: cleanup_calls.append(kwargs),
+    )
+    act = add_activity(active_release, label="Step 1", step=active_release.steps.get())
+    delete_activity(act)
+    assert cleanup_calls == [
+        {
+            "release_status": DataRelease.Status.ACTIVE,
+            "github_repo": "",
+            "github_issue_number": None,
+            "glpi_ticket_id": None,
+            "label": "Step 1",
+        }
+    ]
+
+
 @pytest.mark.django_db(transaction=True)
 def test_on_commit_runs_sync_after_commit(monkeypatch):
     """O caminho real: start_release agenda on_commit; o callback roda no commit."""
     calls = []
-    monkeypatch.setattr("idac_drd.integrations.sync.sync_activity", calls.append)
+    # sync_activity agora recebe (activity, actor=None)
+    monkeypatch.setattr("idac_drd.integrations.sync.sync_activity", lambda a, actor=None: calls.append(a))
 
     release = DataRelease.objects.create(name="P", slug="p-oncommit", status=DataRelease.Status.PLANNED)
     step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")

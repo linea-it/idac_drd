@@ -62,18 +62,22 @@ def test_api_delete_release_denied_for_official_history(user):
 
 @pytest.mark.django_db
 def test_activity_delete_only_todo(user):
-    # o plano é editável também em execução; o limite é o estado da atividade
-    # (não apagar histórico de uma atividade que já começou), em qualquer modo.
+    # em draft qualquer status é removível (blocked nasce de deps pendentes e
+    # nada começou); em execução o limite é o estado da atividade (não apagar
+    # histórico de uma atividade que já começou).
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    draft = make_release("Plano", status="planned")
+    blocked_in_draft = draft.activities.get(key="step-2")  # nasce blocked (dep pendente)
+    assert blocked_in_draft.status == "blocked"
+    res = client.delete(f"/api/activities/{blocked_in_draft.id}/")
+    assert res.status_code == 204  # blocked em draft: permitido
+
     no_deps = [
         {"key": "s1", "label": "S1", "step": "a"},
         {"key": "s2", "label": "S2", "step": "a"},
     ]
-    draft = make_release("Plano", status="planned", activities=no_deps)
-    client = APIClient()
-    client.force_authenticate(user=user)
-    res = client.delete(f"/api/activities/{draft.activities.first().id}/")
-    assert res.status_code == 204  # todo em draft: permitido
-
     active = make_release("Active", activities=no_deps)
     act = active.activities.first()
     res = client.delete(f"/api/activities/{act.id}/")
@@ -83,6 +87,11 @@ def test_activity_delete_only_todo(user):
     act.save()
     res = client.delete(f"/api/activities/{act.id}/")
     assert res.status_code == 400  # iniciada: não se apaga histórico
+
+    blocked = make_release("Active2", slug="active2")
+    blocked_act = blocked.activities.get(key="step-2")  # nasce blocked
+    res = client.delete(f"/api/activities/{blocked_act.id}/")
+    assert res.status_code == 400  # blocked em execução: não se apaga histórico
 
 
 # ── rate limiting ────────────────────────────────────────────────────────────

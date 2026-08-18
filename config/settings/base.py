@@ -246,10 +246,13 @@ GLPI_USER = env.str("GLPI_USER", default="")
 GLPI_PASSWORD = env.str("GLPI_PASSWORD", default="")
 GLPI_APP_TOKEN = env.str("GLPI_APP_TOKEN", default="")
 
+# URL pública da aplicação — usada nos CTAs das notificações Slack
+# (existe com ou sem SAML2; o SAML2 reutiliza o mesmo valor via FQDN).
+SITE_URL = env.str("SITE_URL", default="")
+
 if AUTH_SAML2_ENABLED:
     import saml2
 
-    SITE_URL = env.str("SITE_URL")
     FQDN = SITE_URL
     SAML_SP_NAME = env.str("SAML_SP_NAME", default="SP WKFW Dashboard")
     CERT_DIR = BASE_DIR / "config" / "certificates"

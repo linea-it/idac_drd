@@ -41,6 +41,56 @@ def test_gate_blocks_until_prerequisite_done(release, user):
 
 
 @pytest.mark.django_db
+def test_activity_with_pending_prerequisite_is_born_blocked(release):
+    # sem deps pendentes nasce todo (pronta para executar); com deps pendentes
+    # nasce blocked — assim não gera ticket no GLPI antes da hora
+    a1 = release.activities.get(key="step-1")
+    a2 = release.activities.get(key="step-2")
+    assert a1.status == Activity.Status.TODO
+    assert a2.status == Activity.Status.BLOCKED
+    assert a2.blocked_reason == "Aguardando pré-requisitos: Step 1"
+
+
+@pytest.mark.django_db
+def test_done_unblocks_prerequisite_blocked_dependent(release, user):
+    a1 = release.activities.get(key="step-1")
+    a2 = release.activities.get(key="step-2")
+    assert a2.status == Activity.Status.BLOCKED
+    transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user)
+    transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
+    transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
+    # pré-requisito concluído: a dependente desbloqueia sozinha (todo, sem reason)
+    a2.refresh_from_db()
+    assert a2.status == Activity.Status.TODO
+    assert a2.blocked_reason == ""
+
+
+@pytest.mark.django_db
+def test_manually_blocked_stays_blocked_after_prerequisite_done(release, user):
+    a1 = release.activities.get(key="step-1")
+    a2 = release.activities.get(key="step-2")
+    transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user)
+    # bloqueio manual com motivo próprio (como a view faz: reason setado antes)
+    a2.blocked_reason = "Esperando fornecedor"
+    a2.save(update_fields=["blocked_reason"])
+    transition_activity(a2, to_status=Activity.Status.BLOCKED, actor=user)
+    transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
+    transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
+    # bloqueio humano não é desfeito pela conclusão do pré-requisito
+    a2.refresh_from_db()
+    assert a2.status == Activity.Status.BLOCKED
+
+
+@pytest.mark.django_db
+def test_blocked_cannot_go_to_review(release, user):
+    a1 = release.activities.get(key="step-1")
+    a2 = release.activities.get(key="step-2")
+    with pytest.raises(WorkflowError):
+        transition_activity(a2, to_status=Activity.Status.IN_REVIEW, actor=user)
+    assert a1.status == Activity.Status.TODO  # nada mudou
+
+
+@pytest.mark.django_db
 def test_clone_copies_deps():
     source = make_release("R1")
     plan = create_plan(name="R1 copy", copy_from_release=source)

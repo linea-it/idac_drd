@@ -44,6 +44,8 @@ class ReleaseStep(models.Model):
     color = models.CharField(max_length=20, blank=True, default="#000099")
     # links de apoio (documentação, instruções): [{"label": str, "url": str}]
     resources = models.JSONField(default=list, blank=True)
+    # Preenchida pelo sync de notificação (thread Slack do step) — nunca via API.
+    slack_thread_ts = models.CharField(max_length=64, blank=True, default="")
 
     class Meta:
         ordering = ["order", "id"]
@@ -94,6 +96,10 @@ class Activity(models.Model):
     # item da issue no Project V2 "Software" (status sincronizado no projeto)
     github_project_item_id = models.CharField(max_length=120, blank=True, default="")
     glpi_ticket_id = models.PositiveIntegerField(null=True, blank=True)
+    # último corpo do ticket gravado pela sync, no formato que escrevemos. A
+    # comparação de conteúdo usa este snapshot e não o GET do GLPI (que pode
+    # devolver o HTML normalizado); NULL = legado, compara contra o GET.
+    glpi_ticket_content = models.TextField(null=True, blank=True)
     area = models.CharField(max_length=120, blank=True, default="")
     size = models.CharField(max_length=120, blank=True, default="")
     # links de apoio (documentação, instruções): [{"label": str, "url": str}]
@@ -138,3 +144,33 @@ class ActivityTransition(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+
+class ActivityTextRevision(models.Model):
+    """Rastro de edição dos campos de texto da activity (notes/description/objectives).
+
+    Capturada no único ponto de update em runtime (ActivityViewSet.partial_update).
+    ``text_before``/``text_after`` guardam o valor persistido — apagar vira
+    ``text_after=""``. Criação (import/clone/atividade nova) não gera revisão.
+    """
+
+    class Field(models.TextChoices):
+        NOTES = "notes", "Notes"
+        DESCRIPTION = "description", "Description"
+        OBJECTIVES = "objectives", "Objectives"
+
+    activity = models.ForeignKey(Activity, related_name="text_revisions", on_delete=models.CASCADE)
+    field = models.CharField(max_length=20, choices=Field.choices)
+    text_before = models.TextField(blank=True)
+    text_after = models.TextField(blank=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="activity_text_revisions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]

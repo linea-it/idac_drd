@@ -37,11 +37,11 @@ def test_send_dm_success(mock_post, fake_response):
     calls = mock_post.call_args_list
     assert len(calls) == 3
     assert calls[0].args[0] == "https://slack.com/api/users.lookupByEmail"
-    assert calls[0].kwargs["json"] == {"email": "user@example.com"}
+    assert calls[0].kwargs["data"] == {"email": "user@example.com"}
     assert calls[1].args[0] == "https://slack.com/api/conversations.open"
-    assert calls[1].kwargs["json"] == {"users": "U123"}
+    assert calls[1].kwargs["data"] == {"users": "U123"}
     assert calls[2].args[0] == "https://slack.com/api/chat.postMessage"
-    assert calls[2].kwargs["json"] == {"channel": "C456", "text": "Hello <@U123>", "as_user": False}
+    assert calls[2].kwargs["data"] == {"channel": "C456", "text": "Hello <@U123>"}
     assert all(call.kwargs["headers"] == SLACK_HEADERS for call in calls)
     assert result["ts"] == "1700000000.000001"
 
@@ -53,6 +53,23 @@ def test_slack_ok_false_raises(mock_post, fake_response):
         with pytest.raises(SlackAPIError) as exc_info:
             send_slack_dm("missing@example.com", "hi")
     assert "users_not_found" in str(exc_info.value)
+
+
+@mock.patch("requests.post")
+def test_slack_ok_false_includes_response_metadata(mock_post, fake_response):
+    mock_post.return_value = fake_response(
+        200,
+        {
+            "ok": False,
+            "error": "invalid_arguments",
+            "response_metadata": {"messages": ["[ERROR] missing required field: channel"]},
+        },
+    )
+    with override_settings(SLACK_ENABLED=True, SLACK_BOT_TOKEN="bot-tok"):
+        with pytest.raises(SlackAPIError) as exc_info:
+            send_slack_dm("missing@example.com", "hi")
+    assert "invalid_arguments" in str(exc_info.value)
+    assert "missing required field: channel" in str(exc_info.value)
 
 
 @mock.patch("requests.post")
@@ -80,7 +97,20 @@ def test_post_message_to_channel(mock_post, fake_response):
     mock_post.assert_called_once_with(
         "https://slack.com/api/chat.postMessage",
         headers=SLACK_HEADERS,
-        json={"channel": "C1", "text": "hi", "as_user": False},
+        data={"channel": "C1", "text": "hi"},
+        timeout=30,
+    )
+
+
+@mock.patch("requests.post")
+def test_post_message_to_thread(mock_post, fake_response):
+    mock_post.return_value = fake_response(200, {"ok": True, "channel": "C1", "ts": "1.2"})
+    with override_settings(SLACK_ENABLED=True, SLACK_BOT_TOKEN="bot-tok", SLACK_CHANNEL_ID="C1", SLACK_DEV_USER_ID=""):
+        post_slack_message("hi", thread_ts="1700000000.000001")
+    mock_post.assert_called_once_with(
+        "https://slack.com/api/chat.postMessage",
+        headers=SLACK_HEADERS,
+        data={"channel": "C1", "text": "hi", "thread_ts": "1700000000.000001"},
         timeout=30,
     )
 
@@ -99,9 +129,9 @@ def test_post_message_falls_back_to_dev_user_dm(mock_post, fake_response):
     calls = mock_post.call_args_list
     assert len(calls) == 2
     assert calls[0].args[0] == "https://slack.com/api/conversations.open"
-    assert calls[0].kwargs["json"] == {"users": "UARSZNZC7"}
+    assert calls[0].kwargs["data"] == {"users": "UARSZNZC7"}
     assert calls[1].args[0] == "https://slack.com/api/chat.postMessage"
-    assert calls[1].kwargs["json"] == {"channel": "D1", "text": "hi", "as_user": False}
+    assert calls[1].kwargs["data"] == {"channel": "D1", "text": "hi"}
 
 
 @mock.patch("requests.post")
