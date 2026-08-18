@@ -254,7 +254,7 @@ if AUTH_SAML2_ENABLED:
     import saml2
 
     FQDN = SITE_URL
-    SAML_SP_NAME = env.str("SAML_SP_NAME", default="SP WKFW Dashboard")
+    SAML_SP_NAME = env.str("SAML_SP_NAME", default="SP IDAC DRD")
     CERT_DIR = BASE_DIR / "config" / "certificates"
     ATTR_DIR = BASE_DIR / "config" / "attribute-maps"
 
