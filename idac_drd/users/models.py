@@ -1,5 +1,5 @@
 from django.contrib.auth.models import AbstractUser
-from django.db.models import CharField, EmailField, Model
+from django.db.models import CharField, EmailField, Model, PositiveIntegerField
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
@@ -26,6 +26,12 @@ class ExternalIdentity(Model):
         blank=True,
         max_length=20,
         help_text=_("Slack member ID, e.g. U0123ABCDEF."),
+    )
+    glpi_id = PositiveIntegerField(
+        _("GLPI ID"),
+        null=True,
+        blank=True,
+        help_text=_("GLPI user id (glpiID), e.g. 38 — ver Administração → Usuários no GLPI."),
     )
 
     def __str__(self) -> str:

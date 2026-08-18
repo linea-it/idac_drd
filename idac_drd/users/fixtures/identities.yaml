@@ -4,6 +4,9 @@
 # O email é sempre <username>@linea.org.br, onde username = uid do SAML (com '.' vira '_').
 # slack_ids coletados do canal C06JSRLF2JU em 2026-08-15.
 # github_handle: cruzados com autores de commits da org linea-it (2026-08-15).
+# glpi_id: id do usuário no GLPI (Administração → Usuários) — preencher
+# manualmente; sem o id o ticket não é atribuído. Em instalações que já rodaram
+# loaddata, atualizar via admin do Django (ou apagar os registros e recarregar).
 #
 # PENDENTE (email do Slack não é @linea.org.br; informar username institucional):
 #   - Bruno Moraes (U05G9UC7GM9)
@@ -15,6 +18,7 @@
     github_handle: carlosadean
     name: Carlos Adean
     slack_id: U0E8BJ9EX
+    glpi_id: null
 - model: users.externalidentity
   pk: 2
   fields:
@@ -22,6 +26,7 @@
     github_handle: gschwend
     name: Julia Gschwend
     slack_id: U0E9WTGH3
+    glpi_id: null
 - model: users.externalidentity
   pk: 3
   fields:
@@ -29,6 +34,7 @@
     github_handle: rcboufleur
     name: Rodrigo Boufleur
     slack_id: UARSZNZC7
+    glpi_id: 38
 - model: users.externalidentity
   pk: 4
   fields:
@@ -36,6 +42,7 @@
     github_handle: ""
     name: Mariana Fernandes
     slack_id: U01EA42KUQ1
+    glpi_id: null
 - model: users.externalidentity
   pk: 5
   fields:
@@ -43,6 +50,7 @@
     github_handle: glaubervila
     name: Glauber Costa
     slack_id: U04S3MPSZPC
+    glpi_id: null
 - model: users.externalidentity
   pk: 6
   fields:
@@ -50,6 +58,7 @@
     github_handle: crisingulani
     name: Cristiano Singulani
     slack_id: U060AEPBEE9
+    glpi_id: null
 - model: users.externalidentity
   pk: 7
   fields:
@@ -57,6 +66,7 @@
     github_handle: noobiagarcia
     name: Nubia Garcia
     slack_id: U06TA032NVC
+    glpi_id: null
 - model: users.externalidentity
   pk: 8
   fields:
@@ -64,6 +74,7 @@
     github_handle: troyack
     name: Eloir Troyack
     slack_id: U06N5QPTS1E
+    glpi_id: null
 - model: users.externalidentity
   pk: 9
   fields:
@@ -71,6 +82,7 @@
     github_handle: ""
     name: Luiz da costa
     slack_id: U0DVD06KF
+    glpi_id: null
 - model: users.externalidentity
   pk: 10
   fields:
@@ -78,3 +90,4 @@
     github_handle: luigilcsilva
     name: Luigi Silva
     slack_id: U06N6GZP4TT
+    glpi_id: null

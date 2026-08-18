@@ -53,6 +53,51 @@ def test_assignee_rejects_user_id(release, user, identity):
 
 
 @pytest.mark.django_db
+def test_create_activity_with_assignee(release, user, identity):
+    client = APIClient()
+    client.force_authenticate(user=user)
+    step = release.steps.first()
+    res = client.post(
+        f"/api/releases/{release.slug}/activities/",
+        {"label": "Brand new", "step_id": step.id, "assignee_id": identity.id},
+        format="json",
+    )
+    assert res.status_code == 201
+    assert res.data["assignee"]["email"] == "alice@linea.org.br"
+    activity = release.activities.get(key="brand-new")
+    assert activity.assignee_id == identity.id
+
+
+@pytest.mark.django_db
+def test_create_activity_without_assignee(release, user):
+    client = APIClient()
+    client.force_authenticate(user=user)
+    step = release.steps.first()
+    res = client.post(
+        f"/api/releases/{release.slug}/activities/",
+        {"label": "No owner", "step_id": step.id},
+        format="json",
+    )
+    assert res.status_code == 201
+    assert res.data["assignee"] is None
+    assert release.activities.get(key="no-owner").assignee is None
+
+
+@pytest.mark.django_db
+def test_edit_without_status_change_dispatches_sync_with_actor(release, user, monkeypatch):
+    from idac_drd.workflow.api import views
+
+    calls = []
+    monkeypatch.setattr(views, "_sync_later", lambda activity, actor=None: calls.append((activity.id, actor)))
+    client = APIClient()
+    client.force_authenticate(user=user)
+    activity = release.activities.first()
+    res = client.patch(f"/api/activities/{activity.id}/", {"notes": "editado"}, format="json")
+    assert res.status_code == 200
+    assert calls == [(activity.id, user)]
+
+
+@pytest.mark.django_db
 def test_assignee_can_be_unset(release, user, identity):
     client = APIClient()
     client.force_authenticate(user=user)
