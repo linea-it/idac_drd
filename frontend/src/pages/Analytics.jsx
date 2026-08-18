@@ -76,8 +76,8 @@ export default function Analytics() {
       </Stack>
       {data?.primary?.bottleneck && (
         <Alert severity="warning">
-          Current bottleneck: <strong>{data.primary.bottleneck.label}</strong> (
-          {Math.round(data.primary.bottleneck.duration_seconds / 60)} min)
+          <strong>{data.primary.bottleneck.label}</strong> is taking the longest (
+          {Math.round(data.primary.bottleneck.duration_seconds / 60)} min).
         </Alert>
       )}
       <Card elevation={2}>

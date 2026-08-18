@@ -49,6 +49,46 @@ def test_add_activity_in_draft_also_queues(queued, db):
     assert queued == [act]
 
 
+def test_rename_release_allowed_only_in_draft(db, monkeypatch):
+    """PATCH name: permitido em draft; bloqueado após iniciar a execução.
+
+    O nome compõe o título das issues/tickets — renomear no meio da execução
+    dessincronizaria as ferramentas (tickets GLPI fechados são terminais).
+    """
+    from django.contrib.auth import get_user_model
+    from rest_framework.test import APIClient
+
+    user = get_user_model().objects.create_user(username="alice", password="pass")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    draft = DataRelease.objects.create(name="Draft", slug="draft", status=DataRelease.Status.PLANNED)
+    res = client.patch("/api/releases/draft/", {"name": "Draft v2"}, format="json")
+    assert res.status_code == 200
+    assert res.json()["name"] == "Draft v2"
+
+    active = DataRelease.objects.create(name="Active", slug="active", status=DataRelease.Status.ACTIVE)
+    res = client.patch("/api/releases/active/", {"name": "Active v2"}, format="json")
+    assert res.status_code == 400
+    active.refresh_from_db()
+    assert active.name == "Active"
+
+
+def test_add_activity_resumes_completed_release(queued, db):
+    release = DataRelease.objects.create(name="C", slug="c", status=DataRelease.Status.COMPLETED)
+    step = ReleaseStep.objects.create(release=release, key="a", label="A", color="#000099")
+    add_activity(release, label="Step 1", step=step)
+    release.refresh_from_db()
+    assert release.status == DataRelease.Status.ACTIVE
+
+
+def test_add_step_resumes_completed_release(db):
+    release = DataRelease.objects.create(name="C", slug="c2", status=DataRelease.Status.COMPLETED)
+    add_step_to_release(release, label="Step A")
+    release.refresh_from_db()
+    assert release.status == DataRelease.Status.ACTIVE
+
+
 def test_transition_queues_sync(active_release, queued):
     act = add_activity(active_release, label="Step 1", step=active_release.steps.get())
     queued.clear()

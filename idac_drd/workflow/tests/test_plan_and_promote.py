@@ -139,7 +139,7 @@ def test_api_transition_blocked_in_draft(user):
     act = release.activities.first()
     res = client.patch(f"/api/activities/{act.id}/", {"status": "in_progress"}, format="json")
     assert res.status_code == 400
-    assert "plan" in res.data[0].lower()  # ValidationError do DRF vira lista
+    assert "start the release" in res.data[0].lower()
 
 
 @pytest.mark.django_db

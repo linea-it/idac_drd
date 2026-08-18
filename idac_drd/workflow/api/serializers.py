@@ -18,21 +18,21 @@ def validate_resources(value):
     if value is None:
         return []
     if not isinstance(value, list):
-        raise serializers.ValidationError("resources must be a list.")
+        raise serializers.ValidationError("Resources need to be a list.")
     if len(value) > MAX_RESOURCES:
-        raise serializers.ValidationError(f"resources cannot have more than {MAX_RESOURCES} items.")
+        raise serializers.ValidationError(f"You can add up to {MAX_RESOURCES} resources.")
     cleaned = []
     for item in value:
         if not isinstance(item, dict):
-            raise serializers.ValidationError("Each resource must be an object with a url.")
+            raise serializers.ValidationError("Each resource needs a URL.")
         url = str(item.get("url") or "").strip()
         if not url:
-            raise serializers.ValidationError("Each resource needs a url.")
+            raise serializers.ValidationError("Each resource needs a URL.")
         if not url.startswith(("http://", "https://")):
-            raise serializers.ValidationError("Resource urls must start with http:// or https://.")
+            raise serializers.ValidationError("Resource URLs need to start with http:// or https://.")
         label = str(item.get("label") or "").strip()
         if len(label) > 200:
-            raise serializers.ValidationError("Resource labels must be at most 200 characters.")
+            raise serializers.ValidationError("Resource labels can be up to 200 characters.")
         cleaned.append({"label": label, "url": url})
     return cleaned
 
@@ -310,25 +310,25 @@ class PlanFileSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         if attrs["format"] != "idac_drd-plan":
-            raise serializers.ValidationError("Unsupported plan file format.")
+            raise serializers.ValidationError("This isn't an IDAC-DRD plan file.")
         if attrs["version"] != 1:
-            raise serializers.ValidationError("Unsupported plan file version.")
+            raise serializers.ValidationError("This plan file version isn't supported.")
 
         step_keys = [s["key"] for s in attrs["steps"]]
         activity_keys = [a["key"] for a in attrs["activities"]]
         if len(set(step_keys)) != len(step_keys):
-            raise serializers.ValidationError("Duplicate step keys in the file.")
+            raise serializers.ValidationError("This file has duplicate step keys.")
         if len(set(activity_keys)) != len(activity_keys):
-            raise serializers.ValidationError("Duplicate activity keys in the file.")
+            raise serializers.ValidationError("This file has duplicate activity keys.")
 
         for activity in attrs["activities"]:
             if activity["step_key"] not in step_keys:
                 raise serializers.ValidationError(
-                    f"Activity '{activity['key']}' references unknown step key '{activity['step_key']}'."
+                    f"The activity '{activity['key']}' points to an unknown step '{activity['step_key']}'."
                 )
             for dep in activity["depends_on"]:
                 if dep not in activity_keys:
                     raise serializers.ValidationError(
-                        f"Activity '{activity['key']}' depends on unknown activity key '{dep}'."
+                        f"The activity '{activity['key']}' depends on an unknown activity '{dep}'."
                     )
         return attrs

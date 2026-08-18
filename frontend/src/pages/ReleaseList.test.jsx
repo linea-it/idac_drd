@@ -64,7 +64,7 @@ test("arquivo inválido mostra erro e não habilita o Create", async () => {
   fireEvent.change(dialog.querySelector('input[type="file"]'), {
     target: { files: [planFile("isto não é json", "broken.json")] },
   });
-  expect(await screen.findByText("Invalid JSON file.")).toBeInTheDocument();
+  expect(await screen.findByText("This file isn't valid JSON.")).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText("Name", { exact: false }), { target: { value: "X" } });
   // sem plano carregado, Create fica desabilitado mesmo com nome
@@ -77,5 +77,5 @@ test("arquivo sem steps/activities é rejeitado como inválido", async () => {
   fireEvent.change(dialog.querySelector('input[type="file"]'), {
     target: { files: [planFile(JSON.stringify({ name: "vazio" }), "empty.json")] },
   });
-  expect(await screen.findByText("Invalid plan file: steps and activities are required.")).toBeInTheDocument();
+  expect(await screen.findByText("This file needs a steps list and an activities list.")).toBeInTheDocument();
 });

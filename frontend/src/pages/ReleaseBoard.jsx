@@ -54,6 +54,8 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const [stepColor, setStepColor] = useState("");
   const [stepResources, setStepResources] = useState([]);
   const [startOpen, setStartOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameName, setRenameName] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   // modo de edição explícito da execução: Edit habilita, Save finaliza
   const [editMode, setEditMode] = useState(false);
@@ -263,6 +265,17 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   }
 
 
+  async function renameRelease() {
+    setError("");
+    try {
+      await api.patch(`/api/releases/${releaseSlug}/`, { name: renameName.trim() });
+      setRenameOpen(false);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function startExecution() {
     setError("");
     try {
@@ -296,7 +309,21 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
     <Stack spacing={2}>
       <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1}>
         <div>
-          <Typography variant="h5">{release?.name}</Typography>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="h5">{release?.name}</Typography>
+            {release?.status === "planned" && (
+              <IconButton
+                size="small"
+                title="Rename release"
+                onClick={() => {
+                  setRenameName(release?.name || "");
+                  setRenameOpen(true);
+                }}
+              >
+                <EditIcon fontSize="small" />
+              </IconButton>
+            )}
+          </Stack>
           <Typography variant="body2" color="text.secondary">
             Sequential gates: an activity cannot start until all prerequisites are done.
           </Typography>
@@ -435,29 +462,31 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
       {error && <Alert severity="error">{error}</Alert>}
       {githubError && (
         <Alert severity="warning" onClose={() => setGithubError("")}>
-          GitHub options unavailable ({githubError}) — repo/área/size não carregados.
+          Couldn't load GitHub repos, areas, or sizes ({githubError}). You can still type them.
         </Alert>
       )}
       {draft && (
         <Alert severity="info">
-          Draft — planning. Nothing is executed until you start the release.
+          This is a draft. Start the release when you're ready to begin.
         </Alert>
       )}
       {inExecution && release?.started_at && (
         <Alert severity="info">
-          In execution · Started: {new Date(release.started_at).toLocaleString()}
-          {editMode && " · Edit mode — changes are saved immediately; Save to finish."}
+          Started {new Date(release.started_at).toLocaleString()}.
+          {editMode && " · Changes save as you go. Choose Save when you're done."}
         </Alert>
       )}
       {release?.status === "completed" && (
         <Alert severity="success">
-          Completed — all {activities.length} activity{activities.length === 1 ? "" : "ies"} are done.
-          {editMode && " · Edit mode — changes are saved immediately; Save to finish."}
+          All activities are done.
+          {editMode && " · Changes save as you go. Choose Save when you're done."}
         </Alert>
       )}
-      {readonly && <Alert severity="info">This release is archived (read-only).</Alert>}
+      {readonly && (
+        <Alert severity="info">This release is archived. You can view it, but you can't make changes.</Alert>
+      )}
       {draft && !(release?.steps || []).length && (
-        <Alert severity="info">Empty plan — add a step to start building it.</Alert>
+        <Alert severity="info">Add a step to start this plan.</Alert>
       )}
       {view === "kanban" ? (
         <StepBoard
@@ -584,7 +613,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
         <DialogTitle>Delete step</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            Delete step "{deleteTarget?.label}"? Only empty steps can be removed.
+            Delete "{deleteTarget?.label}"? You can delete a step only if it has no activities.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -594,16 +623,42 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
           </Button>
         </DialogActions>
       </Dialog>
+      <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} fullWidth maxWidth="xs">
+        <form onSubmit={renameRelease}>
+          <DialogTitle>Rename release</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <TextField
+                size="small"
+                label="Name"
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                required
+                fullWidth
+                autoFocus
+              />
+              <Typography variant="body2" color="text.secondary">
+                This name appears on GitHub issues and GLPI tickets. You can change it only while this is a draft.
+              </Typography>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRenameOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="contained" color="success">
+              Rename
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
       <Dialog open={startOpen} onClose={() => setStartOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>Start execution?</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Typography variant="body2">
-              {activities.length} activities · {withoutAssignee} without assignee · {withoutRepo} without GitHub repo
+              {activities.length} activities · {withoutAssignee} without assignee · {withoutRepo} using default repo (idac_drd)
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              The release goes into operation: activities can start progressing. The plan stays editable at any
-              time — starting is an indication that it is live, not a freeze.
+              Activities can start moving. You can still edit the plan after you start.
             </Typography>
           </Stack>
         </DialogContent>

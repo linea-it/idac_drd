@@ -249,7 +249,7 @@ test("options do GitHub com erro mostram banner sem derrubar o board", async () 
   });
   render(<ReleaseBoard releaseSlug="release-smoke" isStaff={true} />);
   await screen.findByText("Release Smoke");
-  expect(screen.getByText(/GitHub options unavailable/)).toBeInTheDocument();
+  expect(screen.getByText(/Couldn't load GitHub/)).toBeInTheDocument();
   expect(screen.getByText(/GH_TOKEN not set/)).toBeInTheDocument();
 });
 

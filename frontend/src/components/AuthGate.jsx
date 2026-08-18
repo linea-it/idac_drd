@@ -9,7 +9,7 @@ export default function AuthGate({ loginUrl }) {
           <Typography variant="body2" color="text.secondary">
             Sign in to track data release workflows, assign activities, and inspect bottlenecks.
           </Typography>
-          <Alert severity="info">Authentication required.</Alert>
+          <Alert severity="info">Sign in to continue.</Alert>
           <Button variant="contained" href={loginUrl}>
             Sign In
           </Button>

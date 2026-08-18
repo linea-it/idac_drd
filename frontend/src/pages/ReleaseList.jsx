@@ -222,7 +222,7 @@ export default function ReleaseList() {
       try {
         const plan = JSON.parse(reader.result);
         if (!Array.isArray(plan.steps) || !Array.isArray(plan.activities)) {
-          setJsonError("Invalid plan file: steps and activities are required.");
+          setJsonError("This file needs a steps list and an activities list.");
           setImportedPlan(null);
           return;
         }
@@ -231,7 +231,7 @@ export default function ReleaseList() {
         // o nome do arquivo vira sugestão; o usuário pode trocar
         if (!name && plan.name) setName(plan.name);
       } catch {
-        setJsonError("Invalid JSON file.");
+        setJsonError("This file isn't valid JSON.");
         setImportedPlan(null);
       }
     };
@@ -354,7 +354,11 @@ export default function ReleaseList() {
                 {jsonError ? (
                   <FormHelperText error>{jsonError}</FormHelperText>
                 ) : (
-                  importedPlan && <FormHelperText>Plan file loaded{importedPlan.name ? `: ${importedPlan.name}` : ""}</FormHelperText>
+                  importedPlan && (
+                    <FormHelperText>
+                      {importedPlan.name ? `Loaded ${importedPlan.name}.` : "Plan loaded."}
+                    </FormHelperText>
+                  )
                 )}
               </FormControl>
             )}
@@ -402,7 +406,7 @@ export default function ReleaseList() {
         <DialogTitle>Delete plan</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            Delete plan "{deleteTarget?.name}"? This removes its steps, activities and history — it cannot be
+            "{deleteTarget?.name}" and its steps, activities, and history will be deleted. This can't be
             undone.
           </Typography>
         </DialogContent>

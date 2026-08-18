@@ -60,7 +60,7 @@ class UserViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gener
 
     def create(self, request, *args, **kwargs):
         if not request.user.is_staff:
-            raise PermissionDenied("Only staff can create users.")
+            raise PermissionDenied("You need staff access to create users.")
         ser = UserCreateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
@@ -72,12 +72,12 @@ class UserViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gener
                 name=data.get("name", ""),
             )
         except IntegrityError:
-            raise ValidationError("Username already exists.") from None
+            raise ValidationError("That username is taken.") from None
         return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
 
     def list(self, request, *args, **kwargs):
         if not request.user.is_staff:
-            raise PermissionDenied("Only staff can list users.")
+            raise PermissionDenied("You need staff access to list users.")
         return super().list(request, *args, **kwargs)
 
 
@@ -121,7 +121,7 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
                 copy_from_release=source_release,
             )
         except IntegrityError:
-            raise ValidationError("A release with this slug already exists.") from None
+            raise ValidationError("A release with this name already exists.") from None
         except WorkflowError as exc:
             raise ValidationError(str(exc)) from exc
         return Response(DataReleaseSerializer(release).data, status=status.HTTP_201_CREATED)
@@ -131,20 +131,24 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
         if "status" in request.data:
             # ciclo de vida (iniciar/arquivar) é staff; edição estrutural é de todos
             if not request.user.is_staff:
-                raise PermissionDenied("Only staff can archive or unarchive a release.")
+                raise PermissionDenied("You need staff access to archive or restore a release.")
             if request.data["status"] == DataRelease.Status.ARCHIVED:
                 archive_release(release)
                 return Response(DataReleaseSerializer(release).data)
             if request.data["status"] == DataRelease.Status.ACTIVE and release.status == DataRelease.Status.ARCHIVED:
                 unarchive_release(release)
                 return Response(DataReleaseSerializer(release).data)
-            raise ValidationError("Use the start action to change status.")
+            raise ValidationError("To start this release, use Start execution.")
+        if "name" in request.data and release.status != DataRelease.Status.PLANNED:
+            # o nome compõe o título das issues/tickets — renomear no meio da
+            # execução dessincronizaria as ferramentas (tickets fechados são terminais)
+            raise ValidationError("You can rename a release only while it's a draft.")
         return super().partial_update(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="start")
     def start(self, request, slug=None):
         if not request.user.is_staff:
-            raise PermissionDenied("Only staff can start a release.")
+            raise PermissionDenied("You need staff access to start a release.")
         release = self.get_object()
         try:
             start_release(release)
@@ -166,7 +170,7 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
         try:
             release = import_plan_payload(ser.validated_data)
         except IntegrityError:
-            raise ValidationError("A release with this slug already exists.") from None
+            raise ValidationError("A release with this name already exists.") from None
         return Response(DataReleaseSerializer(release).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="steps")
@@ -271,7 +275,7 @@ class ActivityViewSet(
     def partial_update(self, request, *args, **kwargs):
         activity = self.get_object()
         if activity.release.is_readonly:
-            raise ValidationError("Archived releases are read-only.")
+            raise ValidationError("This release is archived, so it can't be changed.")
 
         data = request.data.copy()
         to_status = data.pop("status", None)
@@ -281,11 +285,11 @@ class ActivityViewSet(
         serializer.is_valid(raise_exception=True)
         step_obj = serializer.validated_data.get("step")
         if step_obj is not None and step_obj.release_id != activity.release_id:
-            raise ValidationError("Step does not belong to this release.")
+            raise ValidationError("That step isn't in this release.")
         dep_objs = serializer.validated_data.get("depends_on")
         if dep_objs is not None:
             if any(d.release_id != activity.release_id for d in dep_objs):
-                raise ValidationError("Dependencies must belong to the same release.")
+                raise ValidationError("Dependencies have to be in the same release.")
             try:
                 ensure_no_dependency_cycle(
                     activity.release.activities.prefetch_related("depends_on"),

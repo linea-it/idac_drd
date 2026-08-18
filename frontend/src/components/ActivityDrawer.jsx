@@ -246,7 +246,7 @@ export default function ActivityDrawer({
             {activity.step_label} · {activity.key}
           </Typography>
           {activity.locked && (
-            <Alert severity="warning">Locked until prerequisites are done.</Alert>
+            <Alert severity="warning">Finish the prerequisites to unlock this activity.</Alert>
           )}
           {error && <Alert severity="error">{error}</Alert>}
           <Accordion key={activity.id} defaultExpanded disableGutters>

@@ -61,13 +61,13 @@ def send_to_review(activity, actor):
 def test_done_requires_review(approval_release, alice):
     a1 = approval_release.activities.get(key="a1")
     transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=alice)
-    with pytest.raises(WorkflowError, match="Only in-review activities can be approved"):
+    with pytest.raises(WorkflowError, match="Approve only from In review"):
         transition_activity(a1, to_status=Activity.Status.DONE, actor=alice)
 
 
 def test_in_review_requires_progress(approval_release, alice):
     a1 = approval_release.activities.get(key="a1")
-    with pytest.raises(WorkflowError, match="Only in-progress"):
+    with pytest.raises(WorkflowError, match="Send to review only from In progress"):
         transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=alice)
 
 
@@ -82,7 +82,7 @@ def test_next_activity_assignee_approves(approval_release, alice):
 def test_wrong_approver_rejected(approval_release, alice, bob):
     a1 = approval_release.activities.get(key="a1")
     send_to_review(a1, alice)
-    with pytest.raises(WorkflowError, match="Only the assignee of the next activity"):
+    with pytest.raises(WorkflowError, match="next activity's assignee"):
         transition_activity(a1, to_status=Activity.Status.DONE, actor=bob)
 
 
@@ -97,7 +97,7 @@ def test_staff_approves_anywhere(approval_release, admin):
 def test_last_activity_needs_staff(approval_release, alice, admin):
     a2 = approval_release.activities.get(key="a2")  # última do step
     send_to_review(a2, alice)
-    with pytest.raises(WorkflowError, match="Only the assignee of the next activity"):
+    with pytest.raises(WorkflowError, match="next activity's assignee"):
         transition_activity(a2, to_status=Activity.Status.DONE, actor=alice)
     transition_activity(a2, to_status=Activity.Status.DONE, actor=admin)
     a2.refresh_from_db()
@@ -124,7 +124,7 @@ def test_system_actor_approves(approval_release):
 def test_rejection_requires_reason(approval_release, alice):
     a1 = approval_release.activities.get(key="a1")
     send_to_review(a1, alice)
-    with pytest.raises(WorkflowError, match="reason is required"):
+    with pytest.raises(WorkflowError, match="Add a reason"):
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=alice)
     transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=alice, comment="Faltou validar o schema")
     a1.refresh_from_db()

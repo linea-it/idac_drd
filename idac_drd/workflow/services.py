@@ -184,7 +184,19 @@ def _approver_allowed(activity: Activity, actor) -> bool:
 
 def _assert_mutable(release: DataRelease) -> None:
     if release.is_readonly:
-        raise WorkflowError("Archived releases are read-only.")
+        raise WorkflowError("This release is archived, so it can't be changed.")
+
+
+def _resume_completed_release(release: DataRelease) -> None:
+    """Step/atividade novos numa release completada reabrem a execução.
+
+    Sem isso a release fica COMPLETED com trabalho novo: a sync até rodaria
+    (o gate aceita COMPLETED), mas o board segue mostrando a release fechada
+    e as notificações (que exigem ACTIVE) nunca são enviadas.
+    """
+    if release.status == DataRelease.Status.COMPLETED:
+        release.status = DataRelease.Status.ACTIVE
+        release.save(update_fields=["status", "updated_at"])
 
 
 def _unblock_ready_dependents(activity: Activity) -> None:
@@ -226,9 +238,9 @@ def transition_activity(
 ) -> Activity:
     _assert_mutable(activity.release)
     if activity.release.status == DataRelease.Status.PLANNED:
-        raise WorkflowError("Execution only starts after the plan is started.")
+        raise WorkflowError("Start the release before changing activity status.")
     if to_status not in Activity.Status.values:
-        raise WorkflowError(f"Invalid status: {to_status}")
+        raise WorkflowError(f"Can't set status to {to_status}.")
 
     if (
         to_status in (Activity.Status.IN_PROGRESS, Activity.Status.IN_REVIEW, Activity.Status.DONE)
@@ -236,11 +248,11 @@ def transition_activity(
     ):
         pending = list(activity.depends_on.exclude(status=Activity.Status.DONE).values_list("label", flat=True))
         raise WorkflowError(
-            "Prerequisites not completed: " + ", ".join(pending) if pending else "Prerequisites not completed."
+            "Finish these first: " + ", ".join(pending) if pending else "Finish the prerequisites first."
         )
 
     if to_status == Activity.Status.BLOCKED and not (activity.blocked_reason or comment):
-        raise WorkflowError("blocked_reason is required when blocking an activity.")
+        raise WorkflowError("Add a reason for blocking this activity.")
 
     from_status = activity.status
     if from_status == to_status:
@@ -248,17 +260,17 @@ def transition_activity(
 
     if to_status == Activity.Status.IN_REVIEW:
         if from_status != Activity.Status.IN_PROGRESS:
-            raise WorkflowError("Only in-progress activities can be sent to review.")
+            raise WorkflowError("Send to review only from In progress.")
     elif to_status == Activity.Status.DONE:
         # done = aprovação: só de in_review e pelo aprovador certo
         if from_status != Activity.Status.IN_REVIEW:
-            raise WorkflowError("Only in-review activities can be approved.")
+            raise WorkflowError("Approve only from In review.")
         if not _approver_allowed(activity, actor):
-            raise WorkflowError("Only the assignee of the next activity (or staff) can approve this activity.")
+            raise WorkflowError("Only the next activity's assignee or staff can approve this.")
     elif to_status == Activity.Status.IN_PROGRESS and from_status == Activity.Status.IN_REVIEW:
         # rejeição da revisão: exige motivo
         if not comment:
-            raise WorkflowError("A reason is required when rejecting a review.")
+            raise WorkflowError("Add a reason to reject this review.")
 
     now = timezone.now()
     activity.status = to_status
@@ -332,8 +344,9 @@ def add_activity(
     assignee: ExternalIdentity | None = None,
 ) -> Activity:
     _assert_mutable(release)
+    _resume_completed_release(release)
     if step.release_id != release.id:
-        raise WorkflowError("Step does not belong to this release.")
+        raise WorkflowError("That step isn't in this release.")
 
     activity_key = key or slugify(label)
     if Activity.objects.filter(release=release, key=activity_key).exists():
@@ -388,11 +401,11 @@ def add_activity(
 def move_activity(activity: Activity, *, step: ReleaseStep, after: Activity | None = None) -> Activity:
     _assert_mutable(activity.release)
     if step.release_id != activity.release.id:
-        raise WorkflowError("Step does not belong to this release.")
+        raise WorkflowError("That step isn't in this release.")
     if after is not None and after.release_id != activity.release.id:
-        raise WorkflowError("After activity does not belong to this release.")
+        raise WorkflowError("That activity isn't in this release.")
     if after is not None and after.id == activity.id:
-        raise WorkflowError("Cannot move an activity after itself.")
+        raise WorkflowError("An activity can't be moved after itself.")
 
     old_order = activity.order
     old_step = activity.step
@@ -416,12 +429,12 @@ def ensure_no_dependency_cycle(nodes, node_id: int, new_dep_ids: list[int]) -> N
     edges = {n.id: set(n.depends_on.values_list("id", flat=True)) for n in nodes}
     edges[node_id] = set(new_dep_ids)
     if node_id in edges[node_id]:
-        raise WorkflowError("An activity cannot depend on itself.")
+        raise WorkflowError("An activity can't depend on itself.")
     stack, seen = list(edges[node_id]), set(edges[node_id])
     while stack:
         cur = stack.pop()
         if cur == node_id:
-            raise WorkflowError("Dependencies would create a cycle.")
+            raise WorkflowError("That dependency would create a loop.")
         for nxt in edges.get(cur, ()):
             if nxt not in seen:
                 seen.add(nxt)
@@ -434,9 +447,9 @@ def delete_activity(activity: Activity) -> None:
     # em draft qualquer status é removível (blocked nasce de deps pendentes e
     # nada começou); em execução só atividades que ainda não começaram (todo)
     if activity.release.status != DataRelease.Status.PLANNED and activity.status != Activity.Status.TODO:
-        raise WorkflowError("Only todo activities can be deleted in execution.")
+        raise WorkflowError("In a started release, you can delete only To do activities.")
     if activity.dependents.exists():
-        raise WorkflowError("Activity has dependents; remove or rewire them first.")
+        raise WorkflowError("Other activities depend on this one. Remove those dependencies first.")
     # integrações: fecha a issue/ticket órfãos depois do commit (best-effort)
     _cleanup_after_delete_later(
         release_status=activity.release.status,
@@ -479,9 +492,9 @@ def unarchive_release(release: DataRelease) -> DataRelease:
 def start_release(release: DataRelease) -> DataRelease:
     """Gesto formal de início de execução: marcar started_at; o plano segue editável."""
     if release.status != DataRelease.Status.PLANNED:
-        raise WorkflowError("Only planned releases can be started.")
+        raise WorkflowError("You can start only draft releases.")
     if not release.activities.exists():
-        raise WorkflowError("Add at least one activity before starting the release.")
+        raise WorkflowError("Add an activity before starting the release.")
     release.status = DataRelease.Status.ACTIVE
     release.started_at = timezone.now()
     release.save(update_fields=["status", "started_at", "updated_at"])
@@ -506,9 +519,10 @@ def add_step_to_release(
     resources: list | None = None,
 ) -> ReleaseStep:
     _assert_mutable(release)
+    _resume_completed_release(release)
     step_key = key or slugify(label)
     if ReleaseStep.objects.filter(release=release, key=step_key).exists():
-        raise WorkflowError(f"Step key '{step_key}' already exists in this release.")
+        raise WorkflowError(f"This release already has a step with the key '{step_key}'.")
     return ReleaseStep.objects.create(
         release=release,
         key=step_key,
@@ -546,7 +560,7 @@ def update_release_step(
 def delete_release_step(step: ReleaseStep) -> None:
     _assert_mutable(step.release)
     if step.activities.exists():
-        raise WorkflowError("Only empty steps can be deleted.")
+        raise WorkflowError("You can delete a step only if it has no activities.")
     step.delete()
 
 
