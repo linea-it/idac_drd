@@ -238,6 +238,54 @@ test("setas do Kanban reordenam atividades dentro do step", async () => {
   await waitFor(() => expect(within(cardOf("First")).getByTitle("Move activity down")).toBeDisabled());
 });
 
+test("Make a copy no Kanban chama duplicate e abre a cópia", async () => {
+  const steps = [{ id: 1, key: "step-a", label: "Step A", order: 0, color: "#0989cb", resources: [] }];
+  const mk = (id, key, label, order, dependsOn = []) => ({
+    id,
+    key,
+    label,
+    step: 1,
+    order,
+    status: "todo",
+    mode: "manual",
+    resources: [],
+    depends_on: dependsOn,
+    locked: false,
+    prerequisites_met: true,
+    objectives: "",
+    step_label: "Step A",
+  });
+  const first = mk(10, "a1", "First", 0);
+  const second = mk(11, "a2", "Second", 1, [10]);
+  const copy = mk(12, "copy-of-first", "Copy of First", 1);
+  let duplicated = false;
+  apiMock.get.mockImplementation((path) => {
+    if (path === "/api/releases/release-smoke/")
+      return Promise.resolve({ ...release, status: "planned", steps });
+    if (path === "/api/releases/release-smoke/activities/")
+      return Promise.resolve(duplicated ? [first, copy, { ...second, order: 2 }] : [first, second]);
+    if (path === "/api/external-identities/") return Promise.resolve([]);
+    if (path === "/api/github/options/") return Promise.resolve({ repos: [], areas: [], sizes: [] });
+    if (path === "/api/releases/release-smoke/transitions/") return Promise.resolve([]);
+    if (path === "/api/releases/release-smoke/text-revisions/") return Promise.resolve([]);
+    return Promise.reject(new Error(`unexpected: ${path}`));
+  });
+  apiMock.post.mockImplementation(async (path) => {
+    if (path === "/api/activities/10/duplicate/") {
+      duplicated = true;
+      return copy;
+    }
+    return {};
+  });
+  render(<ReleaseBoard releaseSlug="release-smoke" isStaff={true} />);
+  await screen.findByText("First");
+
+  fireEvent.click(within(screen.getByText("First").closest(".MuiCard-root")).getByTitle("Make a copy"));
+
+  await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith("/api/activities/10/duplicate/", {}));
+  expect(await screen.findByRole("heading", { name: "Copy of First" })).toBeInTheDocument();
+});
+
 test("options do GitHub com erro mostram banner sem derrubar o board", async () => {
   apiMock.get.mockImplementation((path) => {
     if (path === "/api/releases/release-smoke/") return Promise.resolve(release);

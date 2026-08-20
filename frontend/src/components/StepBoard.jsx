@@ -1,5 +1,6 @@
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import ControlPointDuplicateIcon from "@mui/icons-material/ControlPointDuplicate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import LockIcon from "@mui/icons-material/Lock";
@@ -17,6 +18,7 @@ export default function StepBoard({
   onDeleteStep,
   onReorderStep,
   onMoveActivity,
+  onDuplicateActivity,
 }) {
   const firstStep = steps[0];
   const lastStep = steps[steps.length - 1];
@@ -126,6 +128,16 @@ export default function StepBoard({
                           />
                           {editable && (
                             <Stack direction="row">
+                              <IconButton
+                                size="small"
+                                title="Make a copy"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDuplicateActivity(activity);
+                                }}
+                              >
+                                <ControlPointDuplicateIcon fontSize="small" />
+                              </IconButton>
                               <IconButton
                                 size="small"
                                 title="Move activity up"

@@ -37,6 +37,7 @@ from idac_drd.workflow.services import (
     create_plan,
     delete_activity,
     delete_release_step,
+    duplicate_activity,
     ensure_no_dependency_cycle,
     export_plan_payload,
     import_plan_payload,
@@ -357,6 +358,15 @@ class ActivityViewSet(
         except WorkflowError as exc:
             raise ValidationError(str(exc)) from exc
         return Response(ActivitySerializer(activity).data)
+
+    @action(detail=True, methods=["post"], url_path="duplicate")
+    def duplicate(self, request, pk=None):
+        activity = self.get_object()
+        try:
+            clone = duplicate_activity(activity)
+        except WorkflowError as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(ActivitySerializer(clone).data, status=status.HTTP_201_CREATED)
 
 
 class BottleneckAnalyticsView(APIView):

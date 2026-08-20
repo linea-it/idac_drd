@@ -343,6 +343,7 @@ def add_activity(
     size: str = "",
     resources: list | None = None,
     assignee: ExternalIdentity | None = None,
+    link_after: bool = True,
 ) -> Activity:
     _assert_mutable(release)
     _resume_completed_release(release)
@@ -380,7 +381,7 @@ def add_activity(
     )
 
     deps = []
-    if after:
+    if after and link_after:
         deps.append(after)
     if depends_on_ids:
         deps.extend(list(Activity.objects.filter(release=release, id__in=depends_on_ids)))
@@ -396,6 +397,34 @@ def add_activity(
         # release em execução: a atividade nova nasce pronta — o assignee precisa saber
         _notify_ready_later(activity)
     return activity
+
+
+@transaction.atomic
+def duplicate_activity(activity: Activity) -> Activity:
+    """Cópia estrutural logo abaixo da original, sem herdar dependências.
+
+    Reaproveita label/descrição/objetivos/recursos quando duas atividades são
+    parecidas. Status sempre todo; [x] dos objetivos zera; issue/ticket, notes
+    e depends_on não vêm junto. Posiciona com ``after`` sem ligar a original
+    como pré-requisito (``link_after=False``).
+    """
+    copy_label = f"Copy of {activity.label}"[:300]
+    return add_activity(
+        activity.release,
+        label=copy_label,
+        step=activity.step,
+        description=activity.description,
+        objectives=_strip_marks(activity.objectives),
+        after=activity,
+        depends_on_ids=[],
+        mode=activity.mode,
+        github_repo=activity.github_repo,
+        area=activity.area,
+        size=activity.size,
+        resources=list(activity.resources or []),
+        assignee=activity.assignee,
+        link_after=False,
+    )
 
 
 @transaction.atomic

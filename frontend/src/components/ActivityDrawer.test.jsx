@@ -374,3 +374,32 @@ test("blocked é deletável em draft, mas não em execução", () => {
   expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   execView.unmount();
 });
+
+test("Make a copy só aparece em modo de edição e chama onDuplicate", async () => {
+  const onDuplicate = vi.fn().mockResolvedValue(undefined);
+  const view = render(
+    <ActivityDrawer
+      open
+      activity={activity}
+      releaseSlug="r1"
+      users={[]}
+      githubOptions={{}}
+      steps={[{ id: 1, label: "Step A" }]}
+      activities={[activity]}
+      readonly={false}
+      draft={true}
+      canEdit={true}
+      onClose={() => {}}
+      onSave={() => {}}
+      onDelete={() => {}}
+      onDuplicate={onDuplicate}
+      onMove={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Make a copy" }));
+  await waitFor(() => expect(onDuplicate).toHaveBeenCalledWith(activity));
+  view.unmount();
+
+  renderDrawer(false, false);
+  expect(screen.queryByRole("button", { name: "Make a copy" })).not.toBeInTheDocument();
+});

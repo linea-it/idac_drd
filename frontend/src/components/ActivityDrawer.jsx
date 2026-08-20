@@ -1,4 +1,5 @@
 import AddIcon from "@mui/icons-material/Add";
+import ControlPointDuplicateIcon from "@mui/icons-material/ControlPointDuplicate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import {
@@ -55,6 +56,7 @@ export default function ActivityDrawer({
   onClose,
   onSave,
   onDelete,
+  onDuplicate,
   onMove,
 }) {
   const [status, setStatus] = useState("todo");
@@ -606,10 +608,20 @@ export default function ActivityDrawer({
             ))
           )}
           <Divider />
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Button variant="contained" onClick={handleSave} disabled={readonly || saving}>
               Save
             </Button>
+            {canEdit && onDuplicate && (
+              <Button
+                variant="outlined"
+                startIcon={<ControlPointDuplicateIcon />}
+                onClick={() => onDuplicate(activity)}
+                disabled={saving}
+              >
+                Make a copy
+              </Button>
+            )}
             <Button variant="outlined" onClick={onClose}>
               Close
             </Button>

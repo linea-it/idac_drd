@@ -138,6 +138,18 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
     await load();
   }
 
+  async function duplicateActivity(activity) {
+    setError("");
+    try {
+      const copy = await api.post(`/api/activities/${activity.id}/duplicate/`, {});
+      await load();
+      selectActivity(copy);
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  }
+
   // reordenação do Kanban (setas ↑/↓): move uma posição dentro do step
   function moveActivityDir(activity, dir) {
     const acts = activities
@@ -495,6 +507,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
           onSelect={selectActivity}
           editable={canEdit}
           onMoveActivity={moveActivityDir}
+          onDuplicateActivity={duplicateActivity}
           onEditStep={(step) => {
             setEditStep(step);
             setStepLabel(step.label);
@@ -528,6 +541,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
         onClose={closeDrawer}
         onSave={saveActivity}
         onDelete={deleteActivity}
+        onDuplicate={duplicateActivity}
         onMove={moveActivity}
       />
       {canEdit && (

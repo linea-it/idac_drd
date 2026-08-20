@@ -3,7 +3,14 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from idac_drd.workflow.models import Activity, DataRelease
-from idac_drd.workflow.services import WorkflowError, add_activity, archive_release, create_plan, transition_activity
+from idac_drd.workflow.services import (
+    WorkflowError,
+    add_activity,
+    archive_release,
+    create_plan,
+    duplicate_activity,
+    transition_activity,
+)
 from idac_drd.workflow.tests.helpers import make_release
 
 User = get_user_model()
@@ -289,3 +296,59 @@ def test_api_unarchive_release(release, staff_user):
     # sem nenhuma atividade iniciada, desarquivar volta para draft
     assert release.status == DataRelease.Status.PLANNED
     assert release.archived_at is None
+
+
+@pytest.mark.django_db
+def test_duplicate_activity_copies_content_not_deps():
+    release = make_release("DP-Test", status="planned")
+    source = release.activities.get(key="step-1")
+    below = release.activities.get(key="step-2")
+    source.description = "Do the thing"
+    source.objectives = "[x] Meta 1\n[ ] Meta 2"
+    source.github_repo = "linea-it/x"
+    source.area = "Ingestão"
+    source.size = "M"
+    source.mode = Activity.Mode.NIFI
+    source.resources = [{"label": "Doc", "url": "https://example.com"}]
+    source.save()
+
+    clone = duplicate_activity(source)
+
+    assert clone.step_id == source.step_id
+    assert clone.label == "Copy of Step 1"
+    assert clone.key == "copy-of-step-1"
+    assert clone.description == "Do the thing"
+    assert clone.objectives == "Meta 1\nMeta 2"
+    assert clone.github_repo == "linea-it/x"
+    assert clone.area == "Ingestão"
+    assert clone.size == "M"
+    assert clone.mode == Activity.Mode.NIFI
+    assert clone.resources == [{"label": "Doc", "url": "https://example.com"}]
+    assert clone.status == Activity.Status.TODO
+    assert list(clone.depends_on.all()) == []
+    assert clone.order == source.order + 1
+    below.refresh_from_db()
+    assert below.order == clone.order + 1
+    # quem já dependia da original continua dependendo dela, não da cópia
+    assert list(below.depends_on.values_list("id", flat=True)) == [source.id]
+
+
+@pytest.mark.django_db
+def test_api_duplicate_activity(user):
+    release = make_release("DP-Test", status="planned")
+    source = release.activities.get(key="step-2")
+    client = APIClient()
+    client.force_authenticate(user=user)
+    res = client.post(f"/api/activities/{source.id}/duplicate/", {}, format="json")
+    assert res.status_code == 201
+    assert res.data["label"] == "Copy of Step 2"
+    assert res.data["depends_on"] == []
+    assert res.data["status"] == "todo"
+    clone = release.activities.get(id=res.data["id"])
+    assert clone.order == source.order + 1
+    source.refresh_from_db()
+    assert list(source.depends_on.values_list("key", flat=True)) == ["step-1"]
+
+    archive_release(release)
+    res = client.post(f"/api/activities/{source.id}/duplicate/", {}, format="json")
+    assert res.status_code == 400
