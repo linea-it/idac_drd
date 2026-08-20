@@ -59,4 +59,4 @@ docker compose run --rm frontend npx vitest run          # frontend
 docker compose -f compose/production/docker-compose.yml up -d
 ```
 
-Django (uvicorn) atrás de nginx na porta 80; TLS encerrado no proxy do host. Variáveis obrigatórias no `.env`: `DJANGO_DEBUG=False`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DATABASE_URL`, `WEB_IMAGE_TAG` (hash do commit; imagem `ghcr.io/linea-it/idac_drd:<hash>`). Certificados do SP (SAML) em `config/certificates/` — ver [config/certificates/README.md](config/certificates/README.md).
+Django (uvicorn) atrás de nginx na porta 80; TLS encerrado no proxy do host. Variáveis obrigatórias no `.env`: `DJANGO_DEBUG=False`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DATABASE_URL`, `WEB_IMAGE_TAG` (hash do commit; imagem `linea/idac_drd:<hash>` no Docker Hub). Certificados do SP (SAML) em `config/certificates/` — ver [config/certificates/README.md](config/certificates/README.md).

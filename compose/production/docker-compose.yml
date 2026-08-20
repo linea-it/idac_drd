@@ -3,7 +3,7 @@ services:
     build:
       context: ../..
       dockerfile: compose/django/Dockerfile
-    image: ghcr.io/linea-it/idac_drd:${WEB_IMAGE_TAG:?WEB_IMAGE_TAG deve ser definido no .env}
+    image: linea/idac_drd:${WEB_IMAGE_TAG:?WEB_IMAGE_TAG deve ser definido no .env}
     command: >
       bash -c "python manage.py migrate --noinput &&
                python manage.py collectstatic --noinput &&
