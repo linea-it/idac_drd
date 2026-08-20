@@ -22,6 +22,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useState } from "react";
+import DependsOnField from "./DependsOnField";
 
 const EMPTY_OPTIONS = { repos: [], areas: [], sizes: [] };
 
@@ -142,21 +143,7 @@ export default function ActivityForm({
                 ))}
               </Select>
             </FormControl>
-            <FormControl fullWidth size="small">
-              <InputLabel>Depends on</InputLabel>
-              <Select
-                label="Depends on"
-                multiple
-                value={dependsOnIds}
-                onChange={(e) => setDependsOnIds(e.target.value)}
-              >
-                {activities.map((a) => (
-                  <MenuItem key={a.id} value={a.id}>
-                    {a.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <DependsOnField activities={activities} value={dependsOnIds} onChange={setDependsOnIds} />
             <FormControl fullWidth size="small">
               <InputLabel>Assignee</InputLabel>
               <Select label="Assignee" value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>

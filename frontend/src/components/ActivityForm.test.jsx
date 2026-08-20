@@ -31,22 +31,31 @@ test("add activity permite duas ou mais dependências", async () => {
   const onSubmit = renderForm();
   // o label do campo required termina com o asterisco do MUI ("Label *")
   fireEvent.change(screen.getByLabelText(/Label/), { target: { value: "New activity" } });
-  // o combobox "Depends on" é o terceiro (Step, After, Depends on)
-  const dependsSelect = screen.getAllByRole("combobox")[2];
-  fireEvent.mouseDown(dependsSelect);
+  const dependsInput = screen.getByLabelText("Depends on");
+  fireEvent.mouseDown(dependsInput);
   fireEvent.click(screen.getByRole("option", { name: "Step 1" }));
   fireEvent.click(screen.getByRole("option", { name: "Step 3" }));
-  // fecha o menu via click-away (o Popover fecha com mousedown fora do Paper)
-  const backdrops = document.querySelectorAll(".MuiBackdrop-root");
-  fireEvent.mouseDown(backdrops[backdrops.length - 1]);
-  fireEvent.click(backdrops[backdrops.length - 1]);
-  // o menu aberto deixa o dialog aria-hidden; espera o unmount antes do Add
-  await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+  // chips visíveis no campo (não escondidos no select)
+  expect(screen.getByRole("button", { name: "Step 1" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Step 3" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await waitFor(() => expect(onSubmit).toHaveBeenCalled());
   expect(onSubmit).toHaveBeenCalledWith(
     expect.objectContaining({ label: "New activity", depends_on_ids: [1, 3] }),
   );
+});
+
+test("chip remove uma dependência sem mexer nas outras", async () => {
+  const onSubmit = renderForm();
+  fireEvent.change(screen.getByLabelText(/Label/), { target: { value: "New activity" } });
+  const dependsInput = screen.getByLabelText("Depends on");
+  fireEvent.mouseDown(dependsInput);
+  fireEvent.click(screen.getByRole("option", { name: "Step 1" }));
+  fireEvent.click(screen.getByRole("option", { name: "Step 3" }));
+  fireEvent.click(screen.getAllByTestId("CancelIcon")[0]);
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+  expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ depends_on_ids: [3] }));
 });
 
 test("add activity envia assignee_id quando um usuário é escolhido", async () => {

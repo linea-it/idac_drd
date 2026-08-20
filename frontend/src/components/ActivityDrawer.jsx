@@ -29,6 +29,7 @@ import {
 } from "@mui/material";
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import DependsOnField from "./DependsOnField";
 
 // estados operacionais que o executor escolhe; a entrega (review) e a
 // conclusão (done) são ações explícitas, não opções do select
@@ -488,21 +489,12 @@ export default function ActivityDrawer({
                     ))}
                   </Select>
                 </FormControl>
-                <FormControl fullWidth size="small" disabled={structDisabled}>
-                  <InputLabel>Depends on</InputLabel>
-                  <Select
-                    label="Depends on"
-                    multiple
-                    value={dependsOnIds}
-                    onChange={(e) => setDependsOnIds(e.target.value)}
-                  >
-                    {depOptions.map((a) => (
-                      <MenuItem key={a.id} value={a.id}>
-                        {a.label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <DependsOnField
+                  activities={depOptions}
+                  value={dependsOnIds}
+                  onChange={setDependsOnIds}
+                  disabled={structDisabled}
+                />
               </Stack>
             </AccordionDetails>
           </Accordion>
