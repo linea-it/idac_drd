@@ -271,7 +271,7 @@ test("em blocked não há botão de envio para review", async () => {
   const view = render(
     <ActivityDrawer
       open
-      activity={{ ...activity, status: "blocked", blocked_reason: "Aguardando pré-requisitos: Step 1" }}
+      activity={{ ...activity, status: "blocked", blocked_reason: "Waiting on prerequisites: Step 1" }}
       releaseSlug="r1"
       users={[]}
       githubOptions={{}}
@@ -345,7 +345,7 @@ test("mostra as text revisions da atividade (editar, apagar e adicionar)", async
 });
 
 test("blocked é deletável em draft, mas não em execução", () => {
-  const blockedActivity = { ...activity, status: "blocked", blocked_reason: "Aguardando pré-requisitos" };
+  const blockedActivity = { ...activity, status: "blocked", blocked_reason: "Waiting on prerequisites" };
   const renderWith = (draft) =>
     render(
       <ActivityDrawer

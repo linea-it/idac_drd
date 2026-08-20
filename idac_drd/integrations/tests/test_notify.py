@@ -582,7 +582,7 @@ def test_on_commit_notifies_ready_on_manual_unblock(monkeypatch):
         label="A1",
         order=0,
         status=Activity.Status.BLOCKED,
-        blocked_reason="Aguardando pré-requisitos: X",
+        blocked_reason="Waiting on prerequisites: X",
         assignee=reviewer,
     )
     try:

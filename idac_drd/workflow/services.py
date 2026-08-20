@@ -199,16 +199,17 @@ def _resume_completed_release(release: DataRelease) -> None:
         release.save(update_fields=["status", "updated_at"])
 
 
+# Motivo automático de bloqueio por pré-requisito (prefixo; legado PT ainda desbloqueia).
+_PREREQ_BLOCK_PREFIX = "Waiting on prerequisites"
+_PREREQ_BLOCK_PREFIXES = (_PREREQ_BLOCK_PREFIX, "Aguardando pré-requisitos")
+
+
 def _unblock_ready_dependents(activity: Activity) -> None:
     """Conclusão desbloqueia dependentes: atividades bloqueadas por pré-requisito
     (motivo automático) com todos os pré-requisitos atendidos voltam para todo —
     e a sync agenda o ticket, já que a atividade ficou disponível."""
     for dep in activity.dependents.filter(status=Activity.Status.BLOCKED):
-        if (
-            dep.blocked_reason
-            and dep.blocked_reason.startswith("Aguardando pré-requisitos")
-            and dep.prerequisites_met()
-        ):
+        if dep.blocked_reason and dep.blocked_reason.startswith(_PREREQ_BLOCK_PREFIXES) and dep.prerequisites_met():
             dep.status = Activity.Status.TODO
             dep.blocked_reason = ""
             dep.save(update_fields=["status", "blocked_reason", "updated_at"])
@@ -225,7 +226,7 @@ def _block_until_prerequisites(activity: Activity) -> None:
     pending = list(activity.depends_on.exclude(status=Activity.Status.DONE).values_list("label", flat=True))
     if pending:
         activity.status = Activity.Status.BLOCKED
-        activity.blocked_reason = "Aguardando pré-requisitos: " + ", ".join(pending)
+        activity.blocked_reason = f"{_PREREQ_BLOCK_PREFIX}: " + ", ".join(pending)
         activity.save(update_fields=["status", "blocked_reason"])
 
 

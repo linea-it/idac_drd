@@ -48,7 +48,7 @@ def test_activity_with_pending_prerequisite_is_born_blocked(release):
     a2 = release.activities.get(key="step-2")
     assert a1.status == Activity.Status.TODO
     assert a2.status == Activity.Status.BLOCKED
-    assert a2.blocked_reason == "Aguardando pré-requisitos: Step 1"
+    assert a2.blocked_reason == "Waiting on prerequisites: Step 1"
 
 
 @pytest.mark.django_db
