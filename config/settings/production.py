@@ -62,3 +62,4 @@ if _script_name:
     LOGIN_URL = _with_script_name(LOGIN_URL, _script_name)
     LINEA_LOGIN_URL = _with_script_name(LINEA_LOGIN_URL, _script_name)
     RUBIN_LOGIN_URL = _with_script_name(RUBIN_LOGIN_URL, _script_name)
+    MIDDLEWARE = ["config.middleware.PrefixRedirectMiddleware", *MIDDLEWARE]
