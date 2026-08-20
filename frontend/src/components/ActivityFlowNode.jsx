@@ -29,22 +29,23 @@ export default function ActivityFlowNode({ data }) {
   return (
     <>
       <Handle type="target" position={Position.Left} />
-      <Box
-        sx={{
-          width: 250,
-          bgcolor: "background.paper",
-          border: 1,
-          borderColor,
-          borderRadius: 1,
-          // a faixa desse step a que a activity pertence (mesma cor do rótulo da faixa)
-          borderLeft: `4px solid ${data.stepColor || "#000099"}`,
-          boxShadow: flash ? `0 0 0 3px ${flashColor}` : "none",
-          px: 1.5,
-          py: 1,
-          opacity: revealed ? (locked ? 0.7 : dim ? 0.35 : 1) : 0,
-          transition: `opacity 400ms ease ${(level || 0) * 80}ms, border-color 300ms ease, box-shadow 600ms ease`,
-        }}
-      >
+      <Box sx={{ opacity: revealed ? 1 : 0, transition: `opacity 400ms ease ${(level || 0) * 80}ms` }}>
+        <Box
+          sx={{
+            width: 250,
+            bgcolor: "background.paper",
+            border: 1,
+            borderColor,
+            borderRadius: 1,
+            // a faixa desse step a que a activity pertence (mesma cor do rótulo da faixa)
+            borderLeft: `4px solid ${data.stepColor || "#000099"}`,
+            boxShadow: flash ? `0 0 0 3px ${flashColor}` : "none",
+            px: 1.5,
+            py: 1,
+            opacity: locked ? 0.7 : dim ? 0.35 : 1,
+            transition: "opacity 150ms ease, border-color 300ms ease, box-shadow 600ms ease",
+          }}
+        >
         <Stack spacing={0.5}>
           <Stack direction="row" alignItems="center" spacing={0.5}>
             <Typography
@@ -80,6 +81,7 @@ export default function ActivityFlowNode({ data }) {
             )}
           </Stack>
         </Stack>
+        </Box>
       </Box>
       <Handle type="source" position={Position.Right} />
     </>

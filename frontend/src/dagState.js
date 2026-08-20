@@ -84,6 +84,8 @@ export function computeDagState(activities, steps) {
     ...stepOrder.map((l, idx) => ({
       id: `band-${l.id}`,
       type: "stepBand",
+      selectable: false,
+      draggable: false,
       position: { x: 0, y: stepTop.get(l.id) },
       data: {
         width: graphWidth,
@@ -94,6 +96,7 @@ export function computeDagState(activities, steps) {
     ...activities.map((a) => ({
       id: String(a.id),
       type: "activity",
+      zIndex: 1,
       position: { x: levels.get(a.id) * LEVEL_WIDTH, y: yOf.get(a.id) },
       data: { activity: a, level: levels.get(a.id), stepColor: stepColor.get(a.step) },
       sourcePosition: Position.Right,

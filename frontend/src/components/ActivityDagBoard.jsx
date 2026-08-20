@@ -176,6 +176,7 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
           ...base.style,
           strokeWidth: isConn ? 2.5 : base.style.strokeWidth,
           opacity: connected ? (isConn ? 1 : 0.15) : 1,
+          pointerEvents: "none",
         },
       };
     });
@@ -206,14 +207,18 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
           deleteKeyCode={null}
           onNodeClick={(_, node) => node.type === "activity" && onSelect(node.data.activity)}
           onMoveEnd={(_, viewport) => sessionStorage.setItem(viewportKey, JSON.stringify(viewport))}
+          nodesConnectable={false}
+          edgesFocusable={false}
           onNodeMouseEnter={(_, node) => {
             if (node.type !== "activity") return;
             clearTimeout(hoverTimer.current);
             hoverTimer.current = setTimeout(() => setHoverId(node.id), 250);
           }}
           onNodeMouseLeave={() => {
+            // debounce: o re-render do dim dispara leave no wrapper do RF;
+            // se o enter voltar antes disto, o hover se mantém
             clearTimeout(hoverTimer.current);
-            setHoverId(null);
+            hoverTimer.current = setTimeout(() => setHoverId(null), 80);
           }}
         >
           <Background variant="dots" gap={24} />
