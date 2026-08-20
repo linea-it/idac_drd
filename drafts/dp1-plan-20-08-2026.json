@@ -1,0 +1,579 @@
+{
+  "format": "idac_drd-plan",
+  "version": 1,
+  "name": "DP1",
+  "steps": [
+    {
+      "key": "rucio-server",
+      "label": "Data Transfer",
+      "order": 0,
+      "color": "#2563EB",
+      "resources": [
+        {
+          "url": "https://www.linea.org.br",
+          "label": "Docs"
+        },
+        {
+          "url": "https://www.uol.com.br",
+          "label": "Libs"
+        }
+      ]
+    },
+    {
+      "key": "data-management",
+      "label": "Data Management",
+      "order": 2,
+      "color": "#0284C7",
+      "resources": []
+    },
+    {
+      "key": "data-preparation",
+      "label": "Data Preparation",
+      "order": 3,
+      "color": "#0891B2",
+      "resources": []
+    },
+    {
+      "key": "skyviewer",
+      "label": "Skyviewer",
+      "order": 4,
+      "color": "#0F766E",
+      "resources": []
+    },
+    {
+      "key": "cutout-service",
+      "label": "Cutout Service",
+      "order": 5,
+      "color": "#059669",
+      "resources": []
+    },
+    {
+      "key": "tap-service",
+      "label": "User Query",
+      "order": 6,
+      "color": "#16A34A",
+      "resources": []
+    },
+    {
+      "key": "lsdb",
+      "label": "LSDB",
+      "order": 7,
+      "color": "#4D7C0F",
+      "resources": []
+    },
+    {
+      "key": "pz-server",
+      "label": "PZ Server",
+      "order": 8,
+      "color": "#EA580C",
+      "resources": []
+    },
+    {
+      "key": "pz-compute",
+      "label": "PZ Compute",
+      "order": 9,
+      "color": "#DC2626",
+      "resources": []
+    },
+    {
+      "key": "jupyter-hub",
+      "label": "Jupyter Hub",
+      "order": 9,
+      "color": "#D97706",
+      "resources": []
+    },
+    {
+      "key": "teste",
+      "label": "teste",
+      "order": 10,
+      "color": "#C026D3",
+      "resources": []
+    }
+  ],
+  "activities": [
+    {
+      "key": "receive-files-dr",
+      "label": "Receive Files (Data Release)",
+      "step_key": "rucio-server",
+      "description": "",
+      "objectives": "[ ] Setup Rucio end-point at USDF\n[ ] Setup Rucio end-point at LIneA\n[ ] Send files (USDF staff)\n[ ] Receive files\n[ ] Data integrity checks",
+      "order": 0,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "🗃️ Data Management",
+      "size": "🐂 Medium (days)",
+      "resources": [],
+      "assignee_email": "eloir.troyack@linea.org.br",
+      "depends_on": []
+    },
+    {
+      "key": "convert-hats",
+      "label": "Convert to HATS",
+      "step_key": "data-preparation",
+      "description": "",
+      "objectives": "[ ] Run hats_import (via pipeline science_catalogs)\n[ ] Set permissions to admins and DRH\n[ ] Run QA notebook (healpix maps)",
+      "order": 0,
+      "mode": "nifi",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": "luigi.silva@linea.org.br",
+      "depends_on": [
+        "approve-qa-parquet"
+      ]
+    },
+    {
+      "key": "register-hips-images",
+      "label": "Register HiPS Images",
+      "step_key": "skyviewer",
+      "description": "",
+      "objectives": "[ ] Register DP1 HiPS images no Skyviewer\n[ ] Make it visible to DRH",
+      "order": 0,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": "glauber.costa@linea.org.br",
+      "depends_on": [
+        "create-hips-images"
+      ]
+    },
+    {
+      "key": "register-daiquiri",
+      "label": "Register tables on daiquiri",
+      "step_key": "tap-service",
+      "description": "",
+      "objectives": "[ ] Register tables on admin DB\n[ ] Update table info (table schema with UCDs)\n[ ] Add and test query examples",
+      "order": 0,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": "glauber.costa@linea.org.br",
+      "depends_on": [
+        "approve-qa-postgres"
+      ]
+    },
+    {
+      "key": "register-fits-skymap",
+      "label": "Register FITS files (Skymap)",
+      "step_key": "cutout-service",
+      "description": "Skymap = tabela com os centros e corners dos tracts",
+      "objectives": "[ ] Registrar DP1 FITS images no cutout service",
+      "order": 0,
+      "mode": "manual",
+      "github_repo": "cutout",
+      "area": "✂️ Cutout Service",
+      "size": "",
+      "resources": [],
+      "assignee_email": "glauber.costa@linea.org.br",
+      "depends_on": [
+        "move-files"
+      ]
+    },
+    {
+      "key": "update-specz",
+      "label": "Update Spec-z Compilation",
+      "step_key": "pz-server",
+      "description": "",
+      "objectives": "[ ] Download and format new ref-z catalogs\n[ ] Upload catalogs to PZ Server\n[ ] Run pipeline CRC with different configs (CLEAN and COMPLETE)\n[ ] Run QA notebook and update data products pages\n[ ] Update site DATA with links to the compilations",
+      "order": 0,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": "luigi.silva@linea.org.br",
+      "depends_on": []
+    },
+    {
+      "key": "train-pz",
+      "label": "Train PZ algos",
+      "step_key": "pz-compute",
+      "description": "",
+      "objectives": "[ ] Run RAIL inform\n[ ] Run validation notebook\n[ ] Upload training files to PZ Server\n[ ] Upload validation files to PZ Server\n[ ] Update site DATA",
+      "order": 0,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": "julia@linea.org.br",
+      "depends_on": [
+        "create-pz-training"
+      ]
+    },
+    {
+      "key": "create-hips-catalog",
+      "label": "Create HiPS Catalog",
+      "step_key": "data-preparation",
+      "description": "",
+      "objectives": "[ ] Run hipscatalog_gen\n[ ] Set permissions to admins and DRH",
+      "order": 0,
+      "mode": "nifi",
+      "github_repo": "hipscatalog_gen",
+      "area": "🌠 Sky Viewer",
+      "size": "",
+      "resources": [],
+      "assignee_email": "luigi.silva@linea.org.br",
+      "depends_on": [
+        "approve-qa-parquet"
+      ]
+    },
+    {
+      "key": "export-pz-rubin",
+      "label": "Export PZ Table to Rubin",
+      "step_key": "rucio-server",
+      "description": "",
+      "objectives": "[ ] Send PZ tables to USDF\n[ ] Send PZ tables to Google Cloud\n[ ] Setup Butler at USDF\n[ ] Setup Butler at Google Cloud\n[ ] Setup data on Qserv / RSP TAP Service",
+      "order": 0,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": "julia@linea.org.br",
+      "depends_on": []
+    },
+    {
+      "key": "updata-site-data",
+      "label": "Update HATS info on site DATA",
+      "step_key": "lsdb",
+      "description": "",
+      "objectives": "[ ] Update table on the home page\n[ ] Create page: DP1 access via LSDB",
+      "order": 0,
+      "mode": "manual",
+      "github_repo": "datasets",
+      "area": "🗃️ Data Management",
+      "size": "🐇 Small (hours)",
+      "resources": [],
+      "assignee_email": "luigi.silva@linea.org.br",
+      "depends_on": [
+        "convert-hats"
+      ]
+    },
+    {
+      "key": "update-notebook-tutorials",
+      "label": "Update notebook tutorials",
+      "step_key": "jupyter-hub",
+      "description": "",
+      "objectives": "",
+      "order": 0,
+      "mode": "manual",
+      "github_repo": "jupyterhub-tutorial",
+      "area": "📔 JupyterHub",
+      "size": "🐂 Medium (days)",
+      "resources": [],
+      "assignee_email": "luigi.silva@linea.org.br",
+      "depends_on": []
+    },
+    {
+      "key": "register-hips-catalog",
+      "label": "Register HiPS Catalog",
+      "step_key": "skyviewer",
+      "description": "",
+      "objectives": "[ ] Register DP1 HiPS catalogs on Skyviewer\n[ ] Make visible to DRH",
+      "order": 1,
+      "mode": "manual",
+      "github_repo": "sky-viewer",
+      "area": "🌠 Sky Viewer",
+      "size": "🐇 Small (hours)",
+      "resources": [],
+      "assignee_email": "glauber.costa@linea.org.br",
+      "depends_on": [
+        "register-hips-images",
+        "create-hips-catalog"
+      ]
+    },
+    {
+      "key": "run-pz-compute",
+      "label": "Run PZ Compute",
+      "step_key": "pz-compute",
+      "description": "",
+      "objectives": "[ ] Run pz-compute\n[ ] Run automatic QA notebook",
+      "order": 1,
+      "mode": "nifi",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": null,
+      "depends_on": [
+        "train-pz"
+      ]
+    },
+    {
+      "key": "create-hips-images",
+      "label": "Create HiPS Images",
+      "step_key": "data-preparation",
+      "description": "",
+      "objectives": "[ ] Run pipeline hipsimage_gen\n[ ] Set permissions to admins and DRH",
+      "order": 1,
+      "mode": "nifi",
+      "github_repo": "hipsimage_gen",
+      "area": "🌠 Sky Viewer",
+      "size": "🐇 Small (hours)",
+      "resources": [],
+      "assignee_email": "singulani@linea.org.br",
+      "depends_on": [
+        "move-files"
+      ]
+    },
+    {
+      "key": "move-files",
+      "label": "Move Files",
+      "step_key": "data-management",
+      "description": "",
+      "objectives": "[ ] Organize files on Lustre\n[ ] Organize files on NFS\n[ ] Create symbolic links\n[ ] Set permissions for admins and data rights holders\n[ ] Run automatic basic QA",
+      "order": 1,
+      "mode": "nifi",
+      "github_repo": "idac_nifi",
+      "area": "🗃️ Data Management",
+      "size": "",
+      "resources": [],
+      "assignee_email": "nubia.garcia@linea.org.br",
+      "depends_on": [
+        "receive-files-dr"
+      ]
+    },
+    {
+      "key": "register-new-release-on-pz-server",
+      "label": "Register new release on PZ Server",
+      "step_key": "pz-server",
+      "description": "",
+      "objectives": "Register new release on admin database",
+      "order": 1,
+      "mode": "manual",
+      "github_repo": "pzserver_app",
+      "area": "🏪 PZ Server",
+      "size": "🐇 Small (hours)",
+      "resources": [],
+      "assignee_email": "singulani@linea.org.br",
+      "depends_on": [
+        "convert-hats"
+      ]
+    },
+    {
+      "key": "create-pz-training",
+      "label": "Create PZ Training Set",
+      "step_key": "pz-server",
+      "description": "",
+      "objectives": "[ ] Run pipeline TSM\n[ ] Run QA notebook\n[ ] Update data product with QA html",
+      "order": 2,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": "julia@linea.org.br",
+      "depends_on": [
+        "update-specz",
+        "register-new-release-on-pz-server"
+      ]
+    },
+    {
+      "key": "skyviewer-docs",
+      "label": "Update HiPS info on site DATA",
+      "step_key": "skyviewer",
+      "description": "",
+      "objectives": "",
+      "order": 2,
+      "mode": "manual",
+      "github_repo": "datasets",
+      "area": "🌠 Sky Viewer",
+      "size": "🐇 Small (hours)",
+      "resources": [],
+      "assignee_email": "luigi.silva@linea.org.br",
+      "depends_on": [
+        "register-hips-images",
+        "register-hips-catalog"
+      ]
+    },
+    {
+      "key": "copy-of-update-hips-info-on-site-data",
+      "label": "Update DB tables info on site DATA",
+      "step_key": "tap-service",
+      "description": "",
+      "objectives": "",
+      "order": 3,
+      "mode": "manual",
+      "github_repo": "datasets",
+      "area": "📥 User Query",
+      "size": "🐇 Small (hours)",
+      "resources": [],
+      "assignee_email": "luigi.silva@linea.org.br",
+      "depends_on": [
+        "register-daiquiri"
+      ]
+    },
+    {
+      "key": "copy-of-update-hips-info-on-site-data-31",
+      "label": "Update FITS info on site DATA",
+      "step_key": "cutout-service",
+      "description": "",
+      "objectives": "",
+      "order": 3,
+      "mode": "manual",
+      "github_repo": "datasets",
+      "area": "✂️ Cutout Service",
+      "size": "🐇 Small (hours)",
+      "resources": [],
+      "assignee_email": "rodrigo.boufleur@linea.org.br",
+      "depends_on": [
+        "register-fits-skymap"
+      ]
+    },
+    {
+      "key": "approve-qa-parquet",
+      "label": "Inspect and approve QA (parquet)",
+      "step_key": "data-management",
+      "description": "Avaliar QA automático gerado pelo Nifi, comparar key numbers com os valores informados na documentação oficial do release: \nhttps://dp1.lsst.io/",
+      "objectives": "[ ] Check data properties\n[ ] Compare with Rubin's documentation",
+      "order": 4,
+      "mode": "manual",
+      "github_repo": "idac_dw",
+      "area": "🗃️ Data Management",
+      "size": "🐇 Small (hours)",
+      "resources": [],
+      "assignee_email": "julia@linea.org.br",
+      "depends_on": [
+        "move-files"
+      ]
+    },
+    {
+      "key": "ingest-pz-postgres",
+      "label": "Ingest PZ Table into Postgres DB",
+      "step_key": "pz-compute",
+      "description": "",
+      "objectives": "",
+      "order": 4,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": null,
+      "depends_on": [
+        "run-pz-compute"
+      ]
+    },
+    {
+      "key": "prepare-ingestion",
+      "label": "Prepare ingestion scripts",
+      "step_key": "data-management",
+      "description": "",
+      "objectives": "",
+      "order": 5,
+      "mode": "manual",
+      "github_repo": "idac_db",
+      "area": "🗃️ Data Management",
+      "size": "",
+      "resources": [],
+      "assignee_email": "carlosadean@linea.org.br",
+      "depends_on": [
+        "approve-qa-parquet"
+      ]
+    },
+    {
+      "key": "qa-pz-db",
+      "label": "Run QA PZ Table DB",
+      "step_key": "pz-compute",
+      "description": "",
+      "objectives": "",
+      "order": 5,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": null,
+      "depends_on": [
+        "ingest-pz-postgres"
+      ]
+    },
+    {
+      "key": "ingest-postgres",
+      "label": "Ingest tables into Postgres DB",
+      "step_key": "data-management",
+      "description": "",
+      "objectives": "[ ] Ingest tables into Postgres DB\n[ ] Create indexes\n[ ] Grant permissions to admins and data rights holders\n[ ] Run automatic basic QA on DB tables",
+      "order": 6,
+      "mode": "nifi",
+      "github_repo": "idac_db",
+      "area": "🗃️ Data Management",
+      "size": "🐇 Small (hours)",
+      "resources": [],
+      "assignee_email": "carlosadean@linea.org.br",
+      "depends_on": [
+        "prepare-ingestion"
+      ]
+    },
+    {
+      "key": "approve-qa-pz-db",
+      "label": "Inspect and approve QA (PZ DB)",
+      "step_key": "pz-compute",
+      "description": "",
+      "objectives": "",
+      "order": 6,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": null,
+      "depends_on": [
+        "qa-pz-db"
+      ]
+    },
+    {
+      "key": "pz-docs",
+      "label": "Update DOCS/DATA (PZ)",
+      "step_key": "pz-compute",
+      "description": "",
+      "objectives": "",
+      "order": 7,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": null,
+      "depends_on": []
+    },
+    {
+      "key": "approve-qa-postgres",
+      "label": "Inspect and approve QA postgres tables",
+      "step_key": "data-management",
+      "description": "",
+      "objectives": "",
+      "order": 9,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": "rodrigo.boufleur@linea.org.br",
+      "depends_on": [
+        "ingest-postgres"
+      ]
+    },
+    {
+      "key": "pz-tutorials",
+      "label": "Update Tutorial notebooks (PZ)",
+      "step_key": "pz-server",
+      "description": "",
+      "objectives": "",
+      "order": 9,
+      "mode": "manual",
+      "github_repo": "",
+      "area": "",
+      "size": "",
+      "resources": [],
+      "assignee_email": null,
+      "depends_on": []
+    }
+  ]
+}
