@@ -1,0 +1,74 @@
+name: CI
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+on:
+  pull_request:
+    branches: ['main']
+    paths-ignore: ['docs/**']
+
+  push:
+    branches: ['main']
+    paths-ignore: ['docs/**']
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  linter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Prepare env file
+        run: cp .env.example .env
+
+      - name: Build the Stack
+        run: docker compose build web
+
+      - name: Run DB Migrations
+        run: docker compose run --rm web python manage.py migrate --noinput
+
+      - name: Run Django Tests
+        run: docker compose run --rm web python -m pytest -q
+
+      - name: Tear down the Stack
+        if: always()
+        run: docker compose down -v
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install and test
+        working-directory: frontend
+        run: |
+          npm ci
+          npx vitest run
