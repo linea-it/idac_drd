@@ -4,7 +4,8 @@ import path from "node:path";
 
 export default defineConfig({
   plugins: [react()],
-  base: "/static/frontend/",
+  // Relativo ao script (funciona em /static/... e em /drd/static/...).
+  base: "./",
   test: {
     environment: "jsdom",
     globals: true,
