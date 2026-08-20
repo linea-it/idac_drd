@@ -55,8 +55,35 @@ docker compose run --rm frontend npx vitest run          # frontend
 
 ## Produção
 
+Copie o conteúdo de `compose/production/` para o diretório de deploy (não aponte para o path no repositório):
+
 ```bash
-docker compose -f compose/production/docker-compose.yml up -d
+# no servidor de produção
+mkdir -p /caminho/deploy && cd /caminho/deploy
+cp /caminho/repo/compose/production/docker-compose.yml .
+cp /caminho/repo/compose/production/nginx.conf .
+cp /caminho/repo/.env.example .env
+# ajuste paths no docker-compose.yml: env_file → .env
+# e o volume de certificados (se SAML) → ./certificates:/app/config/certificates:ro
 ```
 
-Django (uvicorn) atrás de nginx na porta 80; TLS encerrado no proxy do host. Variáveis obrigatórias no `.env`: `DJANGO_DEBUG=False`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DATABASE_URL`, `WEB_IMAGE_TAG` (hash do commit; imagem `linea/idac_drd:<hash>` no Docker Hub). Certificados do SP (SAML) em `config/certificates/` — ver [config/certificates/README.md](config/certificates/README.md).
+No `.env`, defina no mínimo:
+
+```env
+DJANGO_DEBUG=False
+DJANGO_SECRET_KEY=<gerar abaixo>
+DJANGO_ALLOWED_HOSTS=<hostname>
+DATABASE_URL=postgres://USER:PASS@HOST:5432/DB
+WEB_IMAGE_TAG=<hash-curto-do-commit>
+```
+
+```bash
+# gerar secret
+docker compose run --rm --no-deps web python -c "import secrets; print(secrets.token_urlsafe(50))"
+
+# subir (imagem linea/idac_drd:<WEB_IMAGE_TAG> no Docker Hub)
+docker compose pull
+docker compose up -d --force-recreate
+```
+
+Django (uvicorn) atrás de nginx na porta 80; TLS encerrado no proxy do host. Certificados do SP (SAML) em `./certificates/` — ver [config/certificates/README.md](config/certificates/README.md).
