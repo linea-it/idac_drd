@@ -10,7 +10,7 @@ import theme from "./theme";
 const rootEl = document.getElementById("idac-drd-root");
 if (rootEl) {
   const authenticated = rootEl.dataset.authenticated === "true";
-  const loginUrl = rootEl.dataset.loginUrl || "/admin/login/?next=/";
+  const loginUrl = rootEl.dataset.loginUrl || "admin/login/?next=./";
   const page = rootEl.dataset.page || "releases";
   const releaseSlug = rootEl.dataset.releaseSlug || "";
   const isStaff = rootEl.dataset.isStaff === "true";

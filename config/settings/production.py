@@ -1,5 +1,7 @@
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 from .base import *  # noqa: F403
-from .base import LOGIN_URL, env
+from .base import LINEA_LOGIN_URL, LOGIN_URL, RUBIN_LOGIN_URL, env
 
 DEBUG = False
 SECRET_KEY = env("DJANGO_SECRET_KEY")
@@ -20,6 +22,28 @@ STORAGES = {
     },
 }
 
+
+def _with_script_name(url, script_name):
+    """Prefixa path absoluto (e ?next=) com o SCRIPT_NAME do reverse proxy."""
+    if not isinstance(url, str) or not url.startswith("/"):
+        return url
+    parts = urlsplit(url)
+    path = parts.path or "/"
+    if path == "/":
+        path = f"{script_name}/"
+    elif path != script_name and not path.startswith(f"{script_name}/"):
+        path = f"{script_name}{path}"
+    query = []
+    for key, val in parse_qsl(parts.query, keep_blank_values=True):
+        if key == "next" and val.startswith("/"):
+            if val == "/":
+                val = f"{script_name}/"
+            elif val != script_name and not val.startswith(f"{script_name}/"):
+                val = f"{script_name}{val}"
+        query.append((key, val))
+    return urlunsplit(("", "", path, urlencode(query), parts.fragment))
+
+
 CSRF_TRUSTED_ORIGINS = env.list(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
     default=["https://www.linea.org.br", "https://linea.org.br"],
@@ -35,5 +59,6 @@ if _script_name:
     SESSION_COOKIE_PATH = _script_name
     # Pedido chega como /static/...; STATIC_URL público é /drd/static/.
     WHITENOISE_STATIC_PREFIX = "/static/"
-    if isinstance(LOGIN_URL, str) and LOGIN_URL.startswith("/"):
-        LOGIN_URL = f"{_script_name}{LOGIN_URL}"
+    LOGIN_URL = _with_script_name(LOGIN_URL, _script_name)
+    LINEA_LOGIN_URL = _with_script_name(LINEA_LOGIN_URL, _script_name)
+    RUBIN_LOGIN_URL = _with_script_name(RUBIN_LOGIN_URL, _script_name)

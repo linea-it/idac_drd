@@ -10,7 +10,7 @@
        data-release-slug="{{ release_slug }}"
        data-authenticated="{% if request.user.is_authenticated %}true{% else %}false{% endif %}"
        data-is-staff="{% if request.user.is_staff %}true{% else %}false{% endif %}"
-       data-login-url="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}?next={{ request.path }}{% endif %}"
+       data-login-url="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}?next={{ request.META.SCRIPT_NAME }}{{ request.path }}{% endif %}"
        data-csrf-token="{{ csrf_token }}"></div>
 {% endblock %}
 

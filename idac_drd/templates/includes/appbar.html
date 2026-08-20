@@ -49,7 +49,7 @@
         {% else %}
           <a id="log-in-link"
              class="nav-link text-uppercase fw-bold"
-             href="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}?next=/{% endif %}">Sign In</a>
+             href="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}?next={% url 'home' %}{% endif %}">Sign In</a>
         {% endif %}
       </div>
     </div>
