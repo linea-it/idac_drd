@@ -314,7 +314,12 @@ if AUTH_SAML2_ENABLED:
         },
         "metadata": {
             "remote": [
-                {"url": env.str("SAML_IDP_METADATA_URL")},
+                {
+                    "url": "https://www.linea.org.br/static/metadata/satosa-prod-frontend-cilogon.xml",
+                },
+                {
+                    "url": "https://www.linea.org.br/static/metadata/satosa-prod-frontend-rubin.xml",
+                },
             ],
         },
         "debug": SAML_DEBUG,
