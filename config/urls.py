@@ -2,12 +2,25 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.staticfiles.urls import staticfiles_urlpatterns
-from django.urls import include, path
+from django.urls import get_script_prefix, include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.authtoken.views import obtain_auth_token
 
 from idac_drd.users.views import linea_login
 from idac_drd.workflow.views import AnalyticsPage, ReactPageView, ReleaseBoardPage
+
+# O form do admin usa app_path = request.get_full_path() (sem SCRIPT_NAME).
+# POST ia para /admin/login/ na raiz → Next.js /login?next=/drd/.
+_admin_login = admin.site.login
+
+
+def _admin_login_prefixed(request, extra_context=None):
+    extra_context = extra_context or {}
+    extra_context["app_path"] = get_script_prefix().rstrip("/") + request.get_full_path()
+    return _admin_login(request, extra_context=extra_context)
+
+
+admin.site.login = _admin_login_prefixed
 
 urlpatterns = [
     path("", ReactPageView.as_view(), name="home"),
