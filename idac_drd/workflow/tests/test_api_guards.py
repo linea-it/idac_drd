@@ -28,7 +28,7 @@ def user(db):
 
 @pytest.mark.django_db
 def test_api_delete_draft_release(user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     step_id = release.steps.first().id
     activity_id = release.activities.first().id
     client = APIClient()
@@ -68,7 +68,7 @@ def test_activity_delete_only_todo(user):
     client = APIClient()
     client.force_authenticate(user=user)
 
-    draft = make_release("Plano", status="planned")
+    draft = make_release("Plano", status="draft")
     blocked_in_draft = draft.activities.get(key="step-2")  # nasce blocked (dep pendente)
     assert blocked_in_draft.status == "blocked"
     res = client.delete(f"/api/activities/{blocked_in_draft.id}/")

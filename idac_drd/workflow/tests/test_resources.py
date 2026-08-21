@@ -27,7 +27,7 @@ def user(db):
 
 @pytest.mark.django_db
 def test_step_resources_roundtrip(user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     client = APIClient()
     client.force_authenticate(user=user)
 
@@ -58,7 +58,7 @@ def test_step_resources_roundtrip(user):
 
 @pytest.mark.django_db
 def test_step_resources_rejects_non_http_urls(user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     client = APIClient()
     client.force_authenticate(user=user)
 
@@ -80,7 +80,7 @@ def test_step_resources_rejects_non_http_urls(user):
 
 @pytest.mark.django_db
 def test_activity_resources_roundtrip(user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     step = release.steps.first()
     client = APIClient()
     client.force_authenticate(user=user)

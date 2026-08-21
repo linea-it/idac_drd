@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from idac_drd.workflow.models import Activity, ActivityTextRevision
-from idac_drd.workflow.services import archive_release, create_plan, export_plan_payload, import_plan_payload
+from idac_drd.workflow.services import archive_release, create_draft, export_draft_payload, import_draft_payload
 from idac_drd.workflow.tests.helpers import make_release
 
 User = get_user_model()
@@ -173,13 +173,13 @@ def test_creation_paths_do_not_create_revisions(release, user):
     assert created.text_revisions.count() == 0
 
     # clone de release
-    clone = create_plan(name="Clone", copy_from_release=release)
+    clone = create_draft(name="Clone", copy_from_release=release)
     assert ActivityTextRevision.objects.filter(activity__release=clone).count() == 0
 
-    # import de plano (slug é único: nome novo no import)
-    payload = export_plan_payload(release)
+    # import de draft (slug é único: nome novo no import)
+    payload = export_draft_payload(release)
     payload["name"] = "Imported"
-    imported = import_plan_payload(payload)
+    imported = import_draft_payload(payload)
     assert ActivityTextRevision.objects.filter(activity__release=imported).count() == 0
 
 

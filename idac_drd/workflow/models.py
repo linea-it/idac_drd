@@ -5,7 +5,7 @@ from django.utils.text import slugify
 
 class DataRelease(models.Model):
     class Status(models.TextChoices):
-        PLANNED = "planned", "Planned"
+        DRAFT = "draft", "Draft"
         ACTIVE = "active", "Active"
         COMPLETED = "completed", "Completed"
         ARCHIVED = "archived", "Archived"

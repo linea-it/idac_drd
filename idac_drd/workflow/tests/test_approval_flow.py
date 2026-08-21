@@ -15,7 +15,7 @@ from idac_drd.workflow.services import (
     WorkflowError,
     add_activity,
     add_step_to_release,
-    create_plan,
+    create_draft,
     transition_activity,
 )
 from idac_drd.workflow.tests.helpers import make_release
@@ -144,7 +144,7 @@ def test_clone_copies_objectives(db):
         {"key": "s1", "label": "S1", "step": "a", "objectives": "Objetivo único"},
     ]
     source = make_release("Source", activities=activities)
-    release = create_plan(name="R", copy_from_release=source)
+    release = create_draft(name="R", copy_from_release=source)
     assert release.activities.get(key="s1").objectives == "Objetivo único"
 
 

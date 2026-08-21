@@ -579,7 +579,7 @@ def _change_label(name: str, activity: Activity) -> str:
 
 
 def cleanup_deleted_activity(release_status, github_repo, github_issue_number, glpi_ticket_id, label) -> None:
-    """Fecha a issue GitHub e o ticket GLPI de uma atividade removida do plano.
+    """Fecha a issue GitHub e o ticket GLPI de uma atividade removida do rascunho.
 
     Best-effort: a atividade já não existe — falha vira warning e nada mais.
     Só age em releases em execução (antes do start não há issue/ticket).
@@ -601,7 +601,7 @@ def cleanup_deleted_activity(release_status, github_repo, github_issue_number, g
             client = _glpi_client()
             ticket = client.get_ticket(glpi_ticket_id)
             if ticket["status"] != 6:
-                client.add_followup(glpi_ticket_id, f'Atividade "{label}" removida do plano — ticket encerrado.')
+                client.add_followup(glpi_ticket_id, f'Atividade "{label}" removida do rascunho — ticket encerrado.')
                 client.update_ticket(glpi_ticket_id, status=6)
         except Exception as exc:  # noqa: BLE001 — best-effort pós-delete
             logger.warning("GLPI cleanup failed for deleted activity: %s", exc)

@@ -186,7 +186,7 @@ def make_activity(release, **overrides):
 def test_gated_by_release_status(clients, release):
     """Release fora de execução (draft/arquivada): no-op silencioso."""
     gh, glpi = clients
-    release.status = DataRelease.Status.PLANNED
+    release.status = DataRelease.Status.DRAFT
     release.save()
     with override_settings(**ENABLED):
         sync.sync_activity(make_activity(release))
@@ -916,7 +916,7 @@ def test_approve_note_is_added_before_closing_put(clients, release):
 
 
 def test_cleanup_deleted_activity_closes_issue_and_ticket(clients, release):
-    """Atividade removida do plano: issue fechada e ticket encerrado com nota."""
+    """Atividade removida do rascunho: issue fechada e ticket encerrado com nota."""
     gh, glpi = clients
     with override_settings(**ENABLED):
         activity = make_activity(release)
@@ -932,7 +932,7 @@ def test_cleanup_deleted_activity_closes_issue_and_ticket(clients, release):
 
     assert gh.updated == [("linea-it", "repo", 42, {"state": "closed", "state_reason": "not_planned"})]
     assert glpi.updated[-1] == (7, {"status": 6})
-    assert glpi.followups[-1] == 'Atividade "Step 1" removida do plano — ticket encerrado.'
+    assert glpi.followups[-1] == 'Atividade "Step 1" removida do rascunho — ticket encerrado.'
 
 
 def _normalized_clients(monkeypatch):
@@ -1029,7 +1029,7 @@ def test_start_release_creates_issues_and_tickets(clients):
     from idac_drd.workflow.services import start_release
 
     gh, glpi = clients
-    release = DataRelease.objects.create(name="Release 1", slug="r-start", status=DataRelease.Status.PLANNED)
+    release = DataRelease.objects.create(name="Release 1", slug="r-start", status=DataRelease.Status.DRAFT)
     step = ReleaseStep.objects.create(release=release, key="a", label="Step A", color="#000099")
     Activity.objects.create(release=release, step=step, key="s1", label="Step 1", order=0)
     Activity.objects.create(release=release, step=step, key="s2", label="Step 2", order=1)

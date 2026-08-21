@@ -79,6 +79,7 @@ class ReleaseStepWriteSerializer(serializers.Serializer):
     label = serializers.CharField(max_length=200)
     key = serializers.SlugField(required=False, allow_blank=True)
     order = serializers.IntegerField(required=False)
+    direction = serializers.IntegerField(required=False)
     # default preenche quando o campo vem ausente; sem isso color=None (NULL)
     # quebrava o NOT NULL do modelo com 500
     color = serializers.CharField(max_length=20, required=False, allow_blank=True, default="#000099")
@@ -86,6 +87,11 @@ class ReleaseStepWriteSerializer(serializers.Serializer):
 
     def validate_resources(self, value):
         return validate_resources(value)
+
+    def validate_direction(self, value):
+        if value not in (-1, 1):
+            raise serializers.ValidationError("Direction must be -1 or 1.")
+        return value
 
 
 class ActivitySerializer(serializers.ModelSerializer):
@@ -261,8 +267,8 @@ class DataReleaseCreateSerializer(serializers.Serializer):
     copy_from_release_slug = serializers.SlugField(required=False, allow_blank=True)
 
 
-class PlanStepSerializer(serializers.Serializer):
-    """Step no formato de arquivo de plan (v1)."""
+class DraftStepSerializer(serializers.Serializer):
+    """Step no formato de arquivo de draft (v1)."""
 
     key = serializers.SlugField(max_length=80)
     label = serializers.CharField(max_length=200)
@@ -274,8 +280,8 @@ class PlanStepSerializer(serializers.Serializer):
         return validate_resources(value)
 
 
-class PlanActivitySerializer(serializers.Serializer):
-    """Activity no formato de arquivo de plan (v1).
+class DraftActivitySerializer(serializers.Serializer):
+    """Activity no formato de arquivo de draft (v1).
 
     Referências por key/email em vez de ids: dependências e step não
     sobrevivem ao arquivo, assignees são resolvidos por email no import.
@@ -299,20 +305,20 @@ class PlanActivitySerializer(serializers.Serializer):
         return validate_resources(value)
 
 
-class PlanFileSerializer(serializers.Serializer):
-    """Arquivo de plan (v1): o que o export produz é exatamente o que o import consome."""
+class DraftFileSerializer(serializers.Serializer):
+    """Arquivo de draft (v1): o que o export produz é exatamente o que o import consome."""
 
-    format = serializers.CharField(required=False, default="idac_drd-plan")
+    format = serializers.CharField(required=False, default="idac_drd-draft")
     version = serializers.IntegerField(required=False, default=1)
     name = serializers.CharField(max_length=200)
-    steps = PlanStepSerializer(many=True)
-    activities = PlanActivitySerializer(many=True)
+    steps = DraftStepSerializer(many=True)
+    activities = DraftActivitySerializer(many=True)
 
     def validate(self, attrs):
-        if attrs["format"] != "idac_drd-plan":
-            raise serializers.ValidationError("This isn't an IDAC-DRD plan file.")
+        if attrs["format"] not in ("idac_drd-draft", "idac_drd-plan"):
+            raise serializers.ValidationError("This isn't an IDAC-DRD draft file.")
         if attrs["version"] != 1:
-            raise serializers.ValidationError("This plan file version isn't supported.")
+            raise serializers.ValidationError("This draft file version isn't supported.")
 
         step_keys = [s["key"] for s in attrs["steps"]]
         activity_keys = [a["key"] for a in attrs["activities"]]

@@ -1,4 +1,6 @@
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ControlPointDuplicateIcon from "@mui/icons-material/ControlPointDuplicate";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -67,19 +69,11 @@ export default function StepBoard({
                   <IconButton
                     size="small"
                     sx={{ color: "rgba(255,255,255,0.85)" }}
-                    title="Edit step"
-                    onClick={() => onEditStep(step)}
-                  >
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    sx={{ color: "rgba(255,255,255,0.85)" }}
                     title="Move step left"
                     disabled={step.id === firstStep?.id}
                     onClick={() => onReorderStep(step, -1)}
                   >
-                    <ArrowUpwardIcon fontSize="small" />
+                    <ArrowBackIcon fontSize="small" />
                   </IconButton>
                   <IconButton
                     size="small"
@@ -88,7 +82,15 @@ export default function StepBoard({
                     disabled={step.id === lastStep?.id}
                     onClick={() => onReorderStep(step, 1)}
                   >
-                    <ArrowDownwardIcon fontSize="small" />
+                    <ArrowForwardIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    sx={{ color: "rgba(255,255,255,0.85)" }}
+                    title="Edit step"
+                    onClick={() => onEditStep(step)}
+                  >
+                    <EditIcon fontSize="small" />
                   </IconButton>
                   <IconButton
                     size="small"

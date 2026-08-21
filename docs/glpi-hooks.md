@@ -159,11 +159,11 @@ Antes de qualquer PUT, a sync faz `GET /Ticket/{id}`; `status == 6` → return.
 Uma vez fechado (pela aprovação **ou manualmente no helpdesk**), a sync retorna
 sem PUT nem followup — o ticket fechado é terminal (ver §8).
 
-### 4.7 Atividade removida do plano
+### 4.7 Atividade removida do rascunho
 
 `cleanup_deleted_activity` ([sync.py](idac_drd/integrations/sync.py)): só em
 releases ACTIVE/COMPLETED; se o ticket existe e não está fechado, registra
-`Atividade "«label»" removida do plano — ticket encerrado.` e fecha com
+`Atividade "«label»" removida do rascunho — ticket encerrado.` e fecha com
 `status=6` (o followup vem **antes** do close). O mesmo cleanup fecha a issue
 GitHub (`state_reason="not_planned"`).
 

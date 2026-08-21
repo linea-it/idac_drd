@@ -2,11 +2,11 @@
 
 Substitui o padrão antigo de carregar templates (load_template_from_dict)
 para montar estruturas de teste — hoje os templates não existem mais e o
-caminho canônico é ``create_plan`` + ``add_step_to_release`` + ``add_activity``.
+caminho canônico é ``create_draft`` + ``add_step_to_release`` + ``add_activity``.
 """
 
 from idac_drd.workflow.models import DataRelease
-from idac_drd.workflow.services import add_activity, add_step_to_release, create_plan, start_release
+from idac_drd.workflow.services import add_activity, add_step_to_release, create_draft, start_release
 
 #: estrutura de referência: 2 steps, cada um com 1 activity
 DEFAULT_STEPS = [
@@ -23,9 +23,9 @@ def make_release(name, *, slug=None, status="active", steps=DEFAULT_STEPS, activ
     """Cria release completa pelos serviços reais.
 
     ``steps``/``activities`` usam os mesmos dicts da antiga fixture de template.
-    ``status``: "planned" deixa em draft; "active" inicia a execução.
+    ``status``: "draft" deixa em rascunho; "active" inicia a execução.
     """
-    release = create_plan(name=name, slug=slug)
+    release = create_draft(name=name, slug=slug)
     step_map = {}
     for step in steps:
         kwargs = {"label": step["label"], "key": step["key"]}
@@ -49,7 +49,7 @@ def make_release(name, *, slug=None, status="active", steps=DEFAULT_STEPS, activ
         activity_key_map[act["key"]] = new_act
     if status == "active":
         start_release(release)
-    elif status != "planned":
+    elif status != "draft":
         release.status = DataRelease.Status(status)
         release.save(update_fields=["status"])
     return release

@@ -2,7 +2,7 @@ import logging
 import re
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Max
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -138,22 +138,22 @@ def _clone_structure(source_steps, source_items, target: DataRelease) -> DataRel
 
 
 @transaction.atomic
-def create_plan(
+def create_draft(
     *,
     name: str,
     slug: str | None = None,
     copy_from_release: DataRelease | None = None,
 ) -> DataRelease:
-    """Cria um plano (draft) em branco ou copiando uma release anterior.
+    """Cria um draft em branco ou copiando uma release anterior.
 
-    O plano é o objeto primário: nasce ``planned`` sem ``started_at`` e só
+    O draft é o objeto primário: nasce ``draft`` sem ``started_at`` e só
     sai do rascunho via ``start_release``. ``template_key`` guarda a origem
     histórica (string) quando a release copiada veio de um template.
     """
     release = DataRelease.objects.create(
         name=name,
         slug=slug or slugify(name),
-        status=DataRelease.Status.PLANNED,
+        status=DataRelease.Status.DRAFT,
         template_key=(copy_from_release.template_key if copy_from_release else ""),
     )
     if copy_from_release is not None:
@@ -218,16 +218,24 @@ def _unblock_ready_dependents(activity: Activity) -> None:
 
 
 def _block_until_prerequisites(activity: Activity) -> None:
-    """Atividade com pré-requisitos pendentes nasce bloqueada.
+    """Alinha status ao estado dos pré-requisitos (mesmo critério do import).
 
-    Sem isso ela viraria ticket no GLPI mesmo sem poder ser executada (poluía o
-    helpdesk). O motivo automático sai quando a atividade for movida para todo.
+    Pendente + todo → blocked com motivo automático. Motivo automático e
+    prereqs ok → volta para todo. Bloqueio manual não é tocado.
     """
     pending = list(activity.depends_on.exclude(status=Activity.Status.DONE).values_list("label", flat=True))
+    auto = bool(activity.blocked_reason) and activity.blocked_reason.startswith(_PREREQ_BLOCK_PREFIXES)
     if pending:
-        activity.status = Activity.Status.BLOCKED
-        activity.blocked_reason = f"{_PREREQ_BLOCK_PREFIX}: " + ", ".join(pending)
-        activity.save(update_fields=["status", "blocked_reason"])
+        if activity.status == Activity.Status.TODO or (
+            activity.status == Activity.Status.BLOCKED and (auto or not activity.blocked_reason)
+        ):
+            activity.status = Activity.Status.BLOCKED
+            activity.blocked_reason = f"{_PREREQ_BLOCK_PREFIX}: " + ", ".join(pending)
+            activity.save(update_fields=["status", "blocked_reason"])
+    elif auto and activity.status == Activity.Status.BLOCKED:
+        activity.status = Activity.Status.TODO
+        activity.blocked_reason = ""
+        activity.save(update_fields=["status", "blocked_reason", "updated_at"])
 
 
 def transition_activity(
@@ -238,7 +246,7 @@ def transition_activity(
     comment: str = "",
 ) -> Activity:
     _assert_mutable(activity.release)
-    if activity.release.status == DataRelease.Status.PLANNED:
+    if activity.release.status == DataRelease.Status.DRAFT:
         raise WorkflowError("Start the release before changing activity status.")
     if to_status not in Activity.Status.values:
         raise WorkflowError(f"Can't set status to {to_status}.")
@@ -317,7 +325,7 @@ def sync_release_completion(release: DataRelease) -> bool:
     arquivadas não são tocadas)."""
     all_done = not release.activities.exclude(status=Activity.Status.DONE).exists()
     target = DataRelease.Status.COMPLETED if all_done else DataRelease.Status.ACTIVE
-    if release.status == DataRelease.Status.PLANNED or release.status == DataRelease.Status.ARCHIVED:
+    if release.status == DataRelease.Status.DRAFT or release.status == DataRelease.Status.ARCHIVED:
         return False
     if release.status == target:
         return False
@@ -476,7 +484,7 @@ def delete_activity(activity: Activity) -> None:
     _assert_mutable(activity.release)
     # em draft qualquer status é removível (blocked nasce de deps pendentes e
     # nada começou); em execução só atividades que ainda não começaram (todo)
-    if activity.release.status != DataRelease.Status.PLANNED and activity.status != Activity.Status.TODO:
+    if activity.release.status != DataRelease.Status.DRAFT and activity.status != Activity.Status.TODO:
         raise WorkflowError("In a started release, you can delete only To do activities.")
     if activity.dependents.exists():
         raise WorkflowError("Other activities depend on this one. Remove those dependencies first.")
@@ -512,7 +520,7 @@ def archive_release(release: DataRelease) -> DataRelease:
 def unarchive_release(release: DataRelease) -> DataRelease:
     # Sem execução iniciada, desarquivar volta para draft; senão retoma a execução.
     any_started = release.activities.filter(started_at__isnull=False).exists()
-    release.status = DataRelease.Status.ACTIVE if any_started else DataRelease.Status.PLANNED
+    release.status = DataRelease.Status.ACTIVE if any_started else DataRelease.Status.DRAFT
     release.archived_at = None
     release.save(update_fields=["status", "archived_at", "updated_at"])
     return release
@@ -520,8 +528,8 @@ def unarchive_release(release: DataRelease) -> DataRelease:
 
 @transaction.atomic
 def start_release(release: DataRelease) -> DataRelease:
-    """Gesto formal de início de execução: marcar started_at; o plano segue editável."""
-    if release.status != DataRelease.Status.PLANNED:
+    """Gesto formal de início de execução: marcar started_at; o draft segue editável."""
+    if release.status != DataRelease.Status.DRAFT:
         raise WorkflowError("You can start only draft releases.")
     if not release.activities.exists():
         raise WorkflowError("Add an activity before starting the release.")
@@ -553,11 +561,14 @@ def add_step_to_release(
     step_key = key or slugify(label)
     if ReleaseStep.objects.filter(release=release, key=step_key).exists():
         raise WorkflowError(f"This release already has a step with the key '{step_key}'.")
+    if order is None:
+        last = release.steps.aggregate(m=Max("order"))["m"]
+        order = 0 if last is None else last + 1
     return ReleaseStep.objects.create(
         release=release,
         key=step_key,
         label=label,
-        order=order if order is not None else release.steps.count(),
+        order=order,
         color=color,
         resources=resources or [],
     )
@@ -591,16 +602,44 @@ def delete_release_step(step: ReleaseStep) -> None:
     _assert_mutable(step.release)
     if step.activities.exists():
         raise WorkflowError("You can delete a step only if it has no activities.")
+    release = step.release
     step.delete()
+    _renormalize_step_orders(release)
 
 
-def export_plan_payload(release: DataRelease) -> dict:
-    """Serializa a estrutura de uma release no formato de arquivo de plan (v1).
+def _renormalize_step_orders(release: DataRelease, steps: list[ReleaseStep] | None = None) -> None:
+    """Garante order 0..n-1 únicos, na ordem visual (order, id)."""
+    steps = steps if steps is not None else list(release.steps.order_by("order", "id"))
+    for i, item in enumerate(steps):
+        if item.order != i:
+            item.order = i
+            item.save(update_fields=["order"])
 
-    Fonte canônica do shape consumido por ``import_plan_payload``: activities
+
+@transaction.atomic
+def reorder_release_step(step: ReleaseStep, direction: int) -> ReleaseStep:
+    """Troca o step com o vizinho na ordem visual e compacta os orders."""
+    _assert_mutable(step.release)
+    if direction not in (-1, 1):
+        raise WorkflowError("Direction must be -1 or 1.")
+    steps = list(step.release.steps.order_by("order", "id"))
+    idx = next(i for i, item in enumerate(steps) if item.id == step.id)
+    swap_idx = idx + direction
+    if swap_idx < 0 or swap_idx >= len(steps):
+        return step
+    steps[idx], steps[swap_idx] = steps[swap_idx], steps[idx]
+    _renormalize_step_orders(step.release, steps)
+    step.refresh_from_db()
+    return step
+
+
+def export_draft_payload(release: DataRelease) -> dict:
+    """Serializa a estrutura de uma release no formato de arquivo de draft (v1).
+
+    Fonte canônica do shape consumido por ``import_draft_payload``: activities
     referenciam steps por key, dependências por keys e assignee por email —
     nenhum id sobrevive ao arquivo. Funciona para qualquer status (exportar uma
-    release executada permite planejar a próxima a partir dela).
+    release executada permite criar o próximo draft a partir dela).
     """
     steps = [
         {
@@ -632,7 +671,7 @@ def export_plan_payload(release: DataRelease) -> dict:
             }
         )
     return {
-        "format": "idac_drd-plan",
+        "format": "idac_drd-draft",
         "version": 1,
         "name": release.name,
         "steps": steps,
@@ -641,18 +680,18 @@ def export_plan_payload(release: DataRelease) -> dict:
 
 
 @transaction.atomic
-def import_plan_payload(data: dict) -> DataRelease:
-    """Cria um plano (``planned``) a partir do formato de arquivo de plan (v1).
+def import_draft_payload(data: dict) -> DataRelease:
+    """Cria um draft a partir do formato de arquivo de draft (v1).
 
     Espelha ``_clone_structure`` com fonte JSON: steps primeiro (mapa por key),
     activities depois (assignee por email, status sempre reseta para todo) e
     dependências resolvidas por key num segundo passe. Sem sync de integrações:
-    a release nasce planned e a sync só roda com a release em execução.
+    a release nasce draft e a sync só roda com a release em execução.
     """
     release = DataRelease.objects.create(
         name=data["name"],
         slug=slugify(data["name"]),
-        status=DataRelease.Status.PLANNED,
+        status=DataRelease.Status.DRAFT,
         template_key="",
     )
 

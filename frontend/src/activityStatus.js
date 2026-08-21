@@ -21,7 +21,7 @@ export function statusLabel(status) {
 }
 
 const RELEASE_STATUS_LABELS = {
-  planned: "Draft",
+  draft: "Draft",
   active: "In execution",
   completed: "Completed",
   archived: "Archived",

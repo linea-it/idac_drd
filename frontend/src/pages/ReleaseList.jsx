@@ -51,7 +51,7 @@ const STEP_STATUS_LABELS = {
 };
 
 const CHIP_COLORS = {
-  planned: "warning",
+  draft: "warning",
   active: "info",
   completed: "success",
   archived: "default",
@@ -59,7 +59,7 @@ const CHIP_COLORS = {
 
 // abas: drafts descartáveis | histórico oficial | arquivado
 const TABS = [
-  { key: "plans", statuses: ["planned"], empty: "No plans yet." },
+  { key: "drafts", statuses: ["draft"], empty: "No drafts yet." },
   { key: "releases", statuses: ["active", "completed"], empty: "No releases yet." },
   { key: "archived", statuses: ["archived"], empty: "No archived releases." },
 ];
@@ -171,9 +171,9 @@ function ReleaseCard({ rel, onDelete }) {
           </Stack>
         </CardContent>
       </CardActionArea>
-      {rel.status === "planned" && (
+      {rel.status === "draft" && (
         <CardActions sx={{ justifyContent: "flex-end", pt: 0 }}>
-          <IconButton size="small" title="Delete plan" onClick={() => onDelete(rel)}>
+          <IconButton size="small" title="Delete draft" onClick={() => onDelete(rel)}>
             <DeleteIcon fontSize="small" />
           </IconButton>
         </CardActions>
@@ -186,11 +186,11 @@ export default function ReleaseList() {
   const [releases, setReleases] = useState([]);
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
-  // origem do novo plano: blank | release | json
+  // origem do novo draft: blank | release | json
   const [origin, setOrigin] = useState("blank");
   const [copyReleaseSlug, setCopyReleaseSlug] = useState("");
-  // plano lido do arquivo JSON (origem "json") e erro de leitura/parse
-  const [importedPlan, setImportedPlan] = useState(null);
+  // draft lido do arquivo JSON (origem "json") e erro de leitura/parse
+  const [importedDraft, setImportedDraft] = useState(null);
   const [jsonError, setJsonError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -213,26 +213,26 @@ export default function ReleaseList() {
     load();
   }, []);
 
-  function handlePlanFile(e) {
+  function handleDraftFile(e) {
     const file = e.target.files?.[0];
     e.target.value = ""; // permite escolher o mesmo arquivo de novo
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const plan = JSON.parse(reader.result);
-        if (!Array.isArray(plan.steps) || !Array.isArray(plan.activities)) {
+        const draft = JSON.parse(reader.result);
+        if (!Array.isArray(draft.steps) || !Array.isArray(draft.activities)) {
           setJsonError("This file needs a steps list and an activities list.");
-          setImportedPlan(null);
+          setImportedDraft(null);
           return;
         }
-        setImportedPlan(plan);
+        setImportedDraft(draft);
         setJsonError("");
         // o nome do arquivo vira sugestão; o usuário pode trocar
-        if (!name && plan.name) setName(plan.name);
+        if (!name && draft.name) setName(draft.name);
       } catch {
         setJsonError("This file isn't valid JSON.");
-        setImportedPlan(null);
+        setImportedDraft(null);
       }
     };
     reader.readAsText(file);
@@ -245,8 +245,8 @@ export default function ReleaseList() {
       if (origin === "json") {
         await api.post("/api/releases/import/", {
           name,
-          steps: importedPlan.steps,
-          activities: importedPlan.activities,
+          steps: importedDraft.steps,
+          activities: importedDraft.activities,
         });
       } else {
         const payload = { name };
@@ -256,7 +256,7 @@ export default function ReleaseList() {
       setName("");
       setOrigin("blank");
       setCopyReleaseSlug("");
-      setImportedPlan(null);
+      setImportedDraft(null);
       setJsonError("");
       setOpen(false);
       await load();
@@ -280,11 +280,11 @@ export default function ReleaseList() {
 
   const canCreate =
     Boolean(name) &&
-    (origin === "blank" || (origin === "release" && copyReleaseSlug) || (origin === "json" && importedPlan));
+    (origin === "blank" || (origin === "release" && copyReleaseSlug) || (origin === "json" && importedDraft));
 
   const tabDef = TABS.find((t) => t.key === tab);
   const counts = {
-    plans: releases.filter((r) => r.status === "planned").length,
+    drafts: releases.filter((r) => r.status === "draft").length,
     releases: releases.filter((r) => ["active", "completed"].includes(r.status)).length,
     archived: releases.filter((r) => r.status === "archived").length,
   };
@@ -340,7 +340,7 @@ export default function ReleaseList() {
             <FormControl>
               <FormLabel>Start from</FormLabel>
               <RadioGroup row value={origin} onChange={(e) => setOrigin(e.target.value)}>
-                <FormControlLabel value="blank" control={<Radio size="small" />} label="Blank plan" />
+                <FormControlLabel value="blank" control={<Radio size="small" />} label="Blank draft" />
                 <FormControlLabel value="release" control={<Radio size="small" />} label="Previous release" />
                 <FormControlLabel value="json" control={<Radio size="small" />} label="JSON file" />
               </RadioGroup>
@@ -349,14 +349,14 @@ export default function ReleaseList() {
               <FormControl size="small">
                 <Button component="label" variant="outlined" size="small" startIcon={<UploadFileIcon />}>
                   Choose JSON file
-                  <input type="file" accept=".json,application/json" hidden onChange={handlePlanFile} />
+                  <input type="file" accept=".json,application/json" hidden onChange={handleDraftFile} />
                 </Button>
                 {jsonError ? (
                   <FormHelperText error>{jsonError}</FormHelperText>
                 ) : (
-                  importedPlan && (
+                  importedDraft && (
                     <FormHelperText>
-                      {importedPlan.name ? `Loaded ${importedPlan.name}.` : "Plan loaded."}
+                      {importedDraft.name ? `Loaded ${importedDraft.name}.` : "Draft loaded."}
                     </FormHelperText>
                   )
                 )}
@@ -389,7 +389,7 @@ export default function ReleaseList() {
       </Dialog>
       <Tabs value={tab} onChange={(_, v) => setTab(v)}>
         <Tab label={`Releases (${counts.releases})`} value="releases" />
-        <Tab label={`Plans (${counts.plans})`} value="plans" />
+        <Tab label={`Drafts (${counts.drafts})`} value="drafts" />
         <Tab label={`Archived (${counts.archived})`} value="archived" />
       </Tabs>
       {!items.length && !loading && (
@@ -403,7 +403,7 @@ export default function ReleaseList() {
         ))}
       </Box>
       <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Delete plan</DialogTitle>
+        <DialogTitle>Delete draft</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
             "{deleteTarget?.name}" and its steps, activities, and history will be deleted. This can't be

@@ -20,8 +20,8 @@ from idac_drd.workflow.api.serializers import (
     ActivityTransitionSerializer,
     DataReleaseCreateSerializer,
     DataReleaseSerializer,
+    DraftFileSerializer,
     ExternalIdentitySerializer,
-    PlanFileSerializer,
     ReleaseStepSerializer,
     ReleaseStepWriteSerializer,
     UserCreateSerializer,
@@ -30,18 +30,20 @@ from idac_drd.workflow.api.serializers import (
 from idac_drd.workflow.models import Activity, ActivityTextRevision, ActivityTransition, DataRelease, ReleaseStep
 from idac_drd.workflow.services import (
     WorkflowError,
+    _block_until_prerequisites,
     _sync_later,
     add_activity,
     add_step_to_release,
     archive_release,
-    create_plan,
+    create_draft,
     delete_activity,
     delete_release_step,
     duplicate_activity,
     ensure_no_dependency_cycle,
-    export_plan_payload,
-    import_plan_payload,
+    export_draft_payload,
+    import_draft_payload,
     move_activity,
+    reorder_release_step,
     start_release,
     transition_activity,
     unarchive_release,
@@ -96,9 +98,9 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def destroy(self, request, *args, **kwargs):
-        # drafts (plano) são descartáveis; histórico oficial nunca é apagado
+        # drafts são descartáveis; histórico oficial nunca é apagado
         release = self.get_object()
-        if release.status != DataRelease.Status.PLANNED:
+        if release.status != DataRelease.Status.DRAFT:
             raise MethodNotAllowed("DELETE")
         release.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -116,7 +118,7 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
         if data.get("copy_from_release_slug"):
             source_release = get_object_or_404(DataRelease, slug=data["copy_from_release_slug"])
         try:
-            release = create_plan(
+            release = create_draft(
                 name=data["name"],
                 slug=data.get("slug") or None,
                 copy_from_release=source_release,
@@ -140,7 +142,7 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
                 unarchive_release(release)
                 return Response(DataReleaseSerializer(release).data)
             raise ValidationError("To start this release, use Start execution.")
-        if "name" in request.data and release.status != DataRelease.Status.PLANNED:
+        if "name" in request.data and release.status != DataRelease.Status.DRAFT:
             # o nome compõe o título das issues/tickets — renomear no meio da
             # execução dessincronizaria as ferramentas (tickets fechados são terminais)
             raise ValidationError("You can rename a release only while it's a draft.")
@@ -158,18 +160,18 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
         return Response(DataReleaseSerializer(release).data)
 
     @action(detail=True, methods=["get"], url_path="export")
-    def export_plan(self, request, slug=None):
-        # arquivo de plan (v1): estrutura em JSON, qualquer status — o board
+    def export_draft(self, request, slug=None):
+        # arquivo de draft (v1): estrutura em JSON, qualquer status — o board
         # baixa como .json; o mesmo payload alimenta POST /api/releases/import/
-        return Response(export_plan_payload(self.get_object()))
+        return Response(export_draft_payload(self.get_object()))
 
     @action(detail=False, methods=["post"], url_path="import")
-    def import_plan(self, request):
-        # cria um plano (planned) a partir do arquivo de plan (v1)
-        ser = PlanFileSerializer(data=request.data)
+    def import_draft(self, request):
+        # cria um draft a partir do arquivo (v1); aceita também o formato legado idac_drd-plan
+        ser = DraftFileSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         try:
-            release = import_plan_payload(ser.validated_data)
+            release = import_draft_payload(ser.validated_data)
         except IntegrityError:
             raise ValidationError("A release with this name already exists.") from None
         return Response(DataReleaseSerializer(release).data, status=status.HTTP_201_CREATED)
@@ -207,13 +209,16 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
         try:
-            step = update_release_step(
-                step,
-                label=data.get("label"),
-                color=data.get("color"),
-                order=data.get("order"),
-                resources=data.get("resources"),
-            )
+            if data.get("direction") is not None:
+                step = reorder_release_step(step, data["direction"])
+            else:
+                step = update_release_step(
+                    step,
+                    label=data.get("label"),
+                    color=data.get("color"),
+                    order=data.get("order"),
+                    resources=data.get("resources"),
+                )
         except WorkflowError as exc:
             raise ValidationError(str(exc)) from exc
         return Response(ReleaseStepSerializer(step).data)
@@ -300,8 +305,9 @@ class ActivityViewSet(
             except WorkflowError as exc:
                 raise ValidationError(str(exc)) from exc
         # rastro de edição dos campos de texto: snapshot antes → grava → diff.
-        # Atômico só o bloco gravação+revisões (transição/sync seguem fora);
         # PATCH parcial não toca os campos ausentes, então o diff é seguro.
+        # Transição entra no mesmo atomic: 400 em draft não deixa depends_on
+        # pela metade (todo + prereq = cadeado).
         before = {f: (getattr(activity, f) or "") for f in TEXT_FIELDS}
         with transaction.atomic():
             self.perform_update(serializer)
@@ -320,21 +326,36 @@ class ActivityViewSet(
                         )
                     )
             ActivityTextRevision.objects.bulk_create(revisions)
+            # mesmo critério do import: depends_on pendente não pode ficar todo
+            # (todo + prereq = cadeado na UI; o JSON round-trip “consertava”
+            # porque o import chama _block_until_prerequisites)
+            if dep_objs is not None:
+                _block_until_prerequisites(activity)
+                activity.refresh_from_db()
 
-        if to_status is not None and to_status != activity.status:
-            if to_status == Activity.Status.BLOCKED and data.get("blocked_reason"):
-                activity.blocked_reason = data["blocked_reason"]
-                activity.save(update_fields=["blocked_reason"])
-            try:
-                transition_activity(activity, to_status=to_status, actor=request.user, comment=comment or "")
-            except WorkflowError as exc:
-                raise ValidationError(str(exc)) from exc
-            activity.refresh_from_db()
-        else:
-            # edição sem mudança de status (assignee, label, descrição...):
-            # espelha no GLPI/GitHub agora — a sync é idempotente e decide se
-            # aplica (gate: release em execução + flags *_ENABLED)
-            _sync_later(activity, actor=request.user)
+            if to_status is not None and to_status != activity.status:
+                if activity.release.status == DataRelease.Status.DRAFT:
+                    # o drawer sempre manda status; em draft ele não muda. Depois
+                    # do auto-block (todo→blocked) o payload ainda diz "todo" —
+                    # ignorar. in_progress/done continua 400.
+                    if {activity.status, to_status} <= {Activity.Status.TODO, Activity.Status.BLOCKED}:
+                        pass
+                    else:
+                        raise ValidationError("Start the release before changing activity status.")
+                else:
+                    if to_status == Activity.Status.BLOCKED and data.get("blocked_reason"):
+                        activity.blocked_reason = data["blocked_reason"]
+                        activity.save(update_fields=["blocked_reason"])
+                    try:
+                        transition_activity(activity, to_status=to_status, actor=request.user, comment=comment or "")
+                    except WorkflowError as exc:
+                        raise ValidationError(str(exc)) from exc
+                    activity.refresh_from_db()
+            else:
+                # edição sem mudança de status (assignee, label, descrição...):
+                # espelha no GLPI/GitHub agora — a sync é idempotente e decide se
+                # aplica (gate: release em execução + flags *_ENABLED)
+                _sync_later(activity, actor=request.user)
 
         return Response(ActivitySerializer(activity).data)
 

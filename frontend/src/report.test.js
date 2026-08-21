@@ -10,7 +10,7 @@ describe("buildReleaseReport", () => {
     const release = {
       name: "Draft Release",
       slug: "draft-release",
-      status: "planned",
+      status: "draft",
       template_key: "template-x",
       started_at: null,
       archived_at: null,
@@ -236,7 +236,7 @@ describe("downloadReport", () => {
     const release = {
       name: "Rel",
       slug: "rel-slug",
-      status: "planned",
+      status: "draft",
       template_key: "",
       started_at: null,
       archived_at: null,

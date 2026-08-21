@@ -1,7 +1,7 @@
-"""Plano como objeto primário: draft → execução.
+"""Draft como objeto primário: rascunho → execução.
 
-Cobre create_plan (em branco / copiar release), start e a edição da estrutura
-durante a execução (o plano continua mutável; "em execução" é uma
+Cobre create_draft (em branco / copiar release), start e a edição da estrutura
+durante a execução (o draft continua mutável; "em execução" é uma
 indicação de operação, não um congelamento).
 """
 
@@ -14,7 +14,7 @@ from idac_drd.workflow.models import Activity, DataRelease, ReleaseStep
 from idac_drd.workflow.services import (
     WorkflowError,
     archive_release,
-    create_plan,
+    create_draft,
     start_release,
     transition_activity,
     unarchive_release,
@@ -41,13 +41,13 @@ def staff_user(db):
     return User.objects.create_user(username="admin", password="pass", is_staff=True)
 
 
-# ── create_plan ──────────────────────────────────────────────────────────────
+# ── create_draft ──────────────────────────────────────────────────────────────
 
 
 @pytest.mark.django_db
-def test_create_plan_blank_starts_empty():
-    release = create_plan(name="Plano")
-    assert release.status == DataRelease.Status.PLANNED
+def test_create_draft_blank_starts_empty():
+    release = create_draft(name="Plano")
+    assert release.status == DataRelease.Status.DRAFT
     assert release.started_at is None
     assert release.template_key == ""
     assert release.steps.count() == 0
@@ -55,7 +55,7 @@ def test_create_plan_blank_starts_empty():
 
 
 @pytest.mark.django_db
-def test_create_plan_from_release_copies_everything(identity):
+def test_create_draft_from_release_copies_everything(identity):
     source = make_release("Source")
     act = source.activities.get(key="step-1")
     act.mode = Activity.Mode.NIFI
@@ -69,8 +69,8 @@ def test_create_plan_from_release_copies_everything(identity):
     transition_activity(act, to_status=Activity.Status.IN_REVIEW, actor=None)
     transition_activity(act, to_status=Activity.Status.DONE, actor=None)
 
-    plan = create_plan(name="Plano", copy_from_release=source)
-    assert plan.status == DataRelease.Status.PLANNED
+    plan = create_draft(name="Plano", copy_from_release=source)
+    assert plan.status == DataRelease.Status.DRAFT
     assert plan.started_at is None
 
     copied = plan.activities.get(key="step-1")
@@ -90,18 +90,18 @@ def test_create_plan_from_release_copies_everything(identity):
 
 
 @pytest.mark.django_db
-def test_create_plan_from_release_copies_template_key():
+def test_create_draft_from_release_copies_template_key():
     source = make_release("Source")
     source.template_key = "dp2"
     source.save(update_fields=["template_key"])
-    plan = create_plan(name="Plano", copy_from_release=source)
+    plan = create_draft(name="Plano", copy_from_release=source)
     assert plan.template_key == "dp2"
 
 
 @pytest.mark.django_db
-def test_create_plan_from_release_without_template_key():
+def test_create_draft_from_release_without_template_key():
     source = make_release("Source")  # template_key vazia por padrão
-    plan = create_plan(name="Plano", copy_from_release=source)
+    plan = create_draft(name="Plano", copy_from_release=source)
     assert plan.template_key == ""
 
 
@@ -110,7 +110,7 @@ def test_create_plan_from_release_without_template_key():
 
 @pytest.mark.django_db
 def test_start_release_sets_active_and_started_at():
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     assert release.started_at is None
     start_release(release)
     release.refresh_from_db()
@@ -119,11 +119,11 @@ def test_start_release_sets_active_and_started_at():
 
 
 @pytest.mark.django_db
-def test_start_release_requires_plan_and_activities():
+def test_start_release_requires_draft_and_activities():
     release = make_release("Active")  # já ativa
     with pytest.raises(WorkflowError):
         start_release(release)
-    blank = create_plan(name="Blank")
+    blank = create_draft(name="Blank")
     with pytest.raises(WorkflowError):
         start_release(blank)  # sem atividades
 
@@ -133,7 +133,7 @@ def test_start_release_requires_plan_and_activities():
 
 @pytest.mark.django_db
 def test_api_transition_blocked_in_draft(user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     client = APIClient()
     client.force_authenticate(user=user)
     act = release.activities.first()
@@ -144,7 +144,7 @@ def test_api_transition_blocked_in_draft(user):
 
 @pytest.mark.django_db
 def test_api_start_flow(staff_user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     client = APIClient()
     client.force_authenticate(user=staff_user)
     res = client.post(f"/api/releases/{release.slug}/start/", format="json")
@@ -155,7 +155,7 @@ def test_api_start_flow(staff_user):
 
 @pytest.mark.django_db
 def test_api_start_staff_only(user, staff_user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     client = APIClient()
     client.force_authenticate(user=user)
     res = client.post(f"/api/releases/{release.slug}/start/", format="json")
@@ -167,7 +167,7 @@ def test_api_start_staff_only(user, staff_user):
 
 @pytest.mark.django_db
 def test_api_patch_status_rejected_outside_archive(user, staff_user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     client = APIClient()
     client.force_authenticate(user=user)
     # ciclo de vida (arquivar/desarquivar) é staff — não-staff leva 403
@@ -185,7 +185,7 @@ def test_api_patch_status_rejected_outside_archive(user, staff_user):
 
 @pytest.mark.django_db
 def test_api_structural_patch_allowed_in_execution(user, identity):
-    # o plano continua editável durante a execução: sem congelamento estrutural
+    # o draft continua editável durante a execução: sem congelamento estrutural
     release = make_release("Plano")
     act = release.activities.first()
     client = APIClient()
@@ -235,21 +235,44 @@ def test_add_and_edit_steps_allowed_in_execution(user):
     res = client.delete(f"/api/releases/{release.slug}/steps/{step.id}/")
     assert res.status_code == 400
 
-    # reordenar steps em execução: ordem é editável como o resto do plano
+    # reordenar steps em execução: ordem é editável como o resto do draft
     step_b = release.steps.get(key="b")
     res = client.patch(
         f"/api/releases/{release.slug}/steps/{step.id}/",
-        {"order": step_b.order},
+        {"direction": 1},
         format="json",
     )
     assert res.status_code == 200
     step.refresh_from_db()
-    assert step.order == step_b.order
+    step_b.refresh_from_db()
+    assert list(release.steps.order_by("order", "id").values_list("key", flat=True)) == ["b", step.key]
+
+
+@pytest.mark.django_db
+def test_reorder_step_swaps_neighbors_with_duplicate_order(user):
+    release = make_release("Plano", status="draft")
+    step_a = release.steps.get(key="a")
+    step_b = release.steps.get(key="b")
+    step_b.order = step_a.order
+    step_b.save(update_fields=["order"])
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    res = client.patch(
+        f"/api/releases/{release.slug}/steps/{step_a.id}/",
+        {"direction": 1},
+        format="json",
+    )
+    assert res.status_code == 200
+    assert list(release.steps.order_by("order", "id").values_list("key", flat=True)) == ["b", "a"]
+    step_a.refresh_from_db()
+    step_b.refresh_from_db()
+    assert step_a.order != step_b.order
 
 
 @pytest.mark.django_db
 def test_step_crud_in_draft(user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     client = APIClient()
     client.force_authenticate(user=user)
 
@@ -270,7 +293,7 @@ def test_step_crud_in_draft(user):
 
 @pytest.mark.django_db
 def test_delete_step_only_empty(user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     client = APIClient()
     client.force_authenticate(user=user)
     step = release.steps.first()  # tem atividades
@@ -283,19 +306,19 @@ def test_delete_step_only_empty(user):
 
 @pytest.mark.django_db
 def test_sync_does_not_touch_draft(user):
-    release = make_release("Plano", status="planned")
+    release = make_release("Plano", status="draft")
     act = release.activities.first()
     act.status = Activity.Status.DONE
     act.save()
-    assert release.status == DataRelease.Status.PLANNED  # sync nunca rodou em draft
+    assert release.status == DataRelease.Status.DRAFT  # sync nunca rodou em draft
 
 
 @pytest.mark.django_db
 def test_unarchive_returns_draft_or_active(user):
-    draft = make_release("Draft", status="planned")
+    draft = make_release("Draft", status="draft")
     archive_release(draft)
     unarchive_release(draft)
-    assert draft.status == DataRelease.Status.PLANNED
+    assert draft.status == DataRelease.Status.DRAFT
 
     active = make_release("Active")
     transition_activity(active.activities.first(), to_status=Activity.Status.IN_PROGRESS, actor=user)
@@ -314,11 +337,11 @@ def test_api_create_blank_and_from_sources(user):
 
     res = client.post("/api/releases/", {"name": "Blank"}, format="json")
     assert res.status_code == 201
-    assert res.data["status"] == DataRelease.Status.PLANNED
+    assert res.data["status"] == DataRelease.Status.DRAFT
     assert res.data["steps"] == []
     assert res.data["template_key"] == ""
 
-    plan = make_release("Origem", status="planned")
+    plan = make_release("Origem", status="draft")
     res = client.post("/api/releases/", {"name": "From release", "copy_from_release_slug": plan.slug}, format="json")
     assert res.status_code == 201
     assert len(res.data["steps"]) == 2

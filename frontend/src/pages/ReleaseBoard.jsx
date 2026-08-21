@@ -61,7 +61,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const [editMode, setEditMode] = useState(false);
 
   const doneCount = activities.filter((a) => a.status === "done").length;
-  const draft = release?.status === "planned";
+  const draft = release?.status === "draft";
   const readonly = release?.status === "archived";
   const inExecution = release?.status === "active";
   const completed = release?.status === "completed";
@@ -194,12 +194,12 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
     }
   }
 
-  async function exportPlan() {
+  async function exportDraft() {
     setError("");
     try {
       const payload = await api.get(`/api/releases/${releaseSlug}/export/`);
       downloadTextFile(
-        `${release.slug || releaseSlug}-plan.json`,
+        `${release.slug || releaseSlug}-draft.json`,
         JSON.stringify(payload, null, 2),
         "application/json;charset=utf-8",
       );
@@ -259,17 +259,9 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   }
 
   async function reorderStep(step, dir) {
-    const steps = release?.steps || [];
-    const idx = steps.findIndex((l) => l.id === step.id);
-    const swap = steps[idx + dir];
-    if (!swap) return;
     setError("");
     try {
-      // troca a ordem das duas steps vizinhas
-      await Promise.all([
-        api.patch(`/api/releases/${releaseSlug}/steps/${step.id}/`, { order: swap.order }),
-        api.patch(`/api/releases/${releaseSlug}/steps/${swap.id}/`, { order: step.order }),
-      ]);
+      await api.patch(`/api/releases/${releaseSlug}/steps/${step.id}/`, { direction: dir });
       await load();
     } catch (err) {
       setError(err.message);
@@ -323,7 +315,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
         <div>
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="h5">{release?.name}</Typography>
-            {release?.status === "planned" && (
+            {release?.status === "draft" && (
               <IconButton
                 size="small"
                 title="Rename release"
@@ -348,7 +340,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
                 ? "info"
                 : release?.status === "completed"
                   ? "success"
-                  : release?.status === "planned"
+                  : release?.status === "draft"
                     ? "warning"
                     : "default"
             }
@@ -448,15 +440,15 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
                 Edit
               </Button>
             ))}
-          {/* documentos: exportar o plan (em edição) / baixar o relatório (fora) */}
+          {/* documentos: exportar o draft (em edição) / baixar o relatório (fora) */}
           {canEdit && (
             <Button
               startIcon={<FileDownloadIcon />}
               variant="outlined"
               sx={{ whiteSpace: "nowrap" }}
-              onClick={exportPlan}
+              onClick={exportDraft}
             >
-              Export plan (JSON)
+              Export draft (JSON)
             </Button>
           )}
           {!editMode && (
@@ -498,7 +490,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
         <Alert severity="info">This release is archived. You can view it, but you can't make changes.</Alert>
       )}
       {draft && !(release?.steps || []).length && (
-        <Alert severity="info">Add a step to start this plan.</Alert>
+        <Alert severity="info">Add a step to start this draft.</Alert>
       )}
       {view === "kanban" ? (
         <StepBoard
@@ -528,6 +520,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
         />
       )}
       <ActivityDrawer
+        key={selected?.id}
         open={Boolean(selected)}
         activity={selected}
         releaseSlug={releaseSlug}
@@ -672,7 +665,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
               {activities.length} activities · {withoutAssignee} without assignee · {withoutRepo} using default repo (idac_drd)
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Activities can start moving. You can still edit the plan after you start.
+              Activities can start moving. You can still edit after you start.
             </Typography>
           </Stack>
         </DialogContent>

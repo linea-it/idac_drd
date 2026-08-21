@@ -11,7 +11,7 @@ const release = {
   id: 1,
   name: "Release Smoke",
   slug: "release-smoke",
-  status: "planned",
+  status: "draft",
   started_at: null,
   template_key: null,
   steps: [],
@@ -113,7 +113,7 @@ test("em completed a edição também é um modo explícito (Edit → Save)", as
   expect(screen.queryByRole("button", { name: "Start execution" })).not.toBeInTheDocument();
 });
 
-test("Export plan (JSON) busca o payload e dispara o download", async () => {
+test("Export draft (JSON) busca o payload e dispara o download", async () => {
   // jsdom não provê createObjectURL/revokeObjectURL — stub para capturar o Blob
   const createObjectURL = vi.fn(() => "blob:mock");
   const revokeObjectURL = vi.fn();
@@ -127,7 +127,7 @@ test("Export plan (JSON) busca o payload e dispara o download", async () => {
     if (path === "/api/github/options/") return Promise.resolve({ repos: [], areas: [], sizes: [] });
     if (path === "/api/releases/release-smoke/export/")
       return Promise.resolve({
-        format: "idac_drd-plan",
+        format: "idac_drd-draft",
         version: 1,
         name: "Release Smoke",
         steps: [],
@@ -139,14 +139,14 @@ test("Export plan (JSON) busca o payload e dispara o download", async () => {
   render(<ReleaseBoard releaseSlug="release-smoke" isStaff={true} />);
   await screen.findByText("Release Smoke");
 
-  fireEvent.click(screen.getByRole("button", { name: "Export plan (JSON)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Export draft (JSON)" }));
 
   await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/api/releases/release-smoke/export/"));
   expect(createObjectURL).toHaveBeenCalled();
   // o blob baixado é o próprio payload do export, como JSON
   const [blob] = createObjectURL.mock.calls[0];
   expect(blob.type).toContain("application/json");
-  expect(JSON.parse(await blob.text()).format).toBe("idac_drd-plan");
+  expect(JSON.parse(await blob.text()).format).toBe("idac_drd-draft");
   expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock");
 });
 
@@ -163,12 +163,12 @@ test("em execução, Export só em edição, Download só fora; Cancel sai recar
   await screen.findByText("Release Smoke");
 
   // fora do modo de edição: Export escondido, Download visível
-  expect(screen.queryByRole("button", { name: "Export plan (JSON)" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Export draft (JSON)" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Download report" })).toBeInTheDocument();
 
   // Edit habilita: Export aparece, Download some, Cancel + Save disponíveis
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-  expect(screen.getByRole("button", { name: "Export plan (JSON)" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Export draft (JSON)" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Download report" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
@@ -176,7 +176,7 @@ test("em execução, Export só em edição, Download só fora; Cancel sai recar
   // Cancel desiste: recarrega do servidor e volta ao estado anterior ao Edit
   const getsBefore = apiMock.get.mock.calls.length;
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByRole("button", { name: "Export plan (JSON)" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Export draft (JSON)" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Download report" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   await waitFor(() => expect(apiMock.get.mock.calls.length).toBeGreaterThan(getsBefore));
@@ -261,7 +261,7 @@ test("Make a copy no Kanban chama duplicate e abre a cópia", async () => {
   let duplicated = false;
   apiMock.get.mockImplementation((path) => {
     if (path === "/api/releases/release-smoke/")
-      return Promise.resolve({ ...release, status: "planned", steps });
+      return Promise.resolve({ ...release, status: "draft", steps });
     if (path === "/api/releases/release-smoke/activities/")
       return Promise.resolve(duplicated ? [first, copy, { ...second, order: 2 }] : [first, second]);
     if (path === "/api/external-identities/") return Promise.resolve([]);

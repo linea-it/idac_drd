@@ -11,7 +11,7 @@ from idac_drd.workflow.models import Activity, DataRelease, ReleaseStep
 from idac_drd.workflow.services import (
     add_activity,
     add_step_to_release,
-    create_plan,
+    create_draft,
     delete_activity,
     move_activity,
     start_release,
@@ -43,7 +43,7 @@ def test_add_activity_queues_sync(active_release, queued):
 
 def test_add_activity_in_draft_also_queues(queued, db):
     # o gate está na sync (release ACTIVE + flags); o hook é incondicional
-    release = DataRelease.objects.create(name="D", slug="d", status=DataRelease.Status.PLANNED)
+    release = DataRelease.objects.create(name="D", slug="d", status=DataRelease.Status.DRAFT)
     step = ReleaseStep.objects.create(release=release, key="a", label="A", color="#000099")
     act = add_activity(release, label="Step 1", step=step)
     assert queued == [act]
@@ -62,7 +62,7 @@ def test_rename_release_allowed_only_in_draft(db, monkeypatch):
     client = APIClient()
     client.force_authenticate(user)
 
-    draft = DataRelease.objects.create(name="Draft", slug="draft", status=DataRelease.Status.PLANNED)
+    draft = DataRelease.objects.create(name="Draft", slug="draft", status=DataRelease.Status.DRAFT)
     res = client.patch("/api/releases/draft/", {"name": "Draft v2"}, format="json")
     assert res.status_code == 200
     assert res.json()["name"] == "Draft v2"
@@ -97,7 +97,7 @@ def test_transition_queues_sync(active_release, queued):
 
 
 def test_start_release_queues_every_activity(queued, db):
-    release = DataRelease.objects.create(name="P", slug="p", status=DataRelease.Status.PLANNED)
+    release = DataRelease.objects.create(name="P", slug="p", status=DataRelease.Status.DRAFT)
     step = add_step_to_release(release, label="Step A")
     add_activity(release, label="Step 1", step=step)
     add_activity(release, label="Step 2", step=step)
@@ -111,7 +111,7 @@ def test_start_release_queues_every_activity(queued, db):
 def test_clone_into_active_release_queues_each_activity(queued, db):
     source = make_release("Source", status="active")
     queued.clear()
-    create_plan(name="R", copy_from_release=source)
+    create_draft(name="R", copy_from_release=source)
     assert sorted(a.key for a in queued) == ["step-1", "step-2"]
 
 
@@ -121,7 +121,7 @@ def test_clone_strips_objective_marks(db):
     act = source.activities.get(key="step-1")
     act.objectives = "[x] Criar schemas\n[ ] Processar ingestao"
     act.save(update_fields=["objectives"])
-    clone = create_plan(name="R", copy_from_release=source)
+    clone = create_draft(name="R", copy_from_release=source)
     assert clone.activities.get(key="step-1").objectives == "Criar schemas\nProcessar ingestao"
 
 
@@ -167,7 +167,7 @@ def test_on_commit_runs_sync_after_commit(monkeypatch):
     # sync_activity agora recebe (activity, actor=None)
     monkeypatch.setattr("idac_drd.integrations.sync.sync_activity", lambda a, actor=None: calls.append(a))
 
-    release = DataRelease.objects.create(name="P", slug="p-oncommit", status=DataRelease.Status.PLANNED)
+    release = DataRelease.objects.create(name="P", slug="p-oncommit", status=DataRelease.Status.DRAFT)
     step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")
     Activity.objects.create(release=release, step=step, key="s1", label="S1", order=0)
     Activity.objects.create(release=release, step=step, key="s2", label="S2", order=1)

@@ -91,7 +91,7 @@ def test_no_notification_without_slack_enabled(release, slack):
 
 def test_no_notification_outside_active_release(release, slack):
     release, a1, _ = release
-    release.status = DataRelease.Status.PLANNED
+    release.status = DataRelease.Status.DRAFT
     release.save()
     with override_settings(SLACK_ENABLED=True):
         notify.notify_review(a1)
@@ -304,7 +304,7 @@ def test_ready_gated_by_slack_enabled(release, slack):
 
 def test_ready_gated_by_release_status(release, slack):
     release, _, a2 = release
-    release.status = DataRelease.Status.PLANNED
+    release.status = DataRelease.Status.DRAFT
     release.save()
     with override_settings(SLACK_ENABLED=True):
         notify.notify_ready(a2)
@@ -511,7 +511,7 @@ def test_on_commit_notifies_ready_on_start(monkeypatch):
     monkeypatch.setattr("idac_drd.integrations.notify.notify_ready", ready_calls.append)
 
     reviewer = ExternalIdentity.objects.create(email="bob@linea.org.br", name="Bob", slack_id="U_BOB")
-    release = DataRelease.objects.create(name="P", slug="p-ready", status=DataRelease.Status.PLANNED)
+    release = DataRelease.objects.create(name="P", slug="p-ready", status=DataRelease.Status.DRAFT)
     step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")
     Activity.objects.create(release=release, step=step, key="a1", label="A1", order=0, assignee=reviewer)
     Activity.objects.create(release=release, step=step, key="a2", label="A2", order=1, assignee=reviewer)
@@ -529,7 +529,7 @@ def test_on_commit_notifies_started(monkeypatch):
 
     monkeypatch.setattr("idac_drd.integrations.notify.notify_release_started", started_calls.append)
 
-    release = DataRelease.objects.create(name="P", slug="p-started", status=DataRelease.Status.PLANNED)
+    release = DataRelease.objects.create(name="P", slug="p-started", status=DataRelease.Status.DRAFT)
     step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")
     Activity.objects.create(release=release, step=step, key="a1", label="A1", order=0)
     try:
@@ -623,7 +623,7 @@ def test_on_commit_notifies_after_review_and_rejection(monkeypatch):
     monkeypatch.setattr("idac_drd.integrations.notify.notify_rejection", capture_rejection)
 
     reviewer = ExternalIdentity.objects.create(email="bob@linea.org.br", name="Bob", slack_id="U_BOB")
-    release = DataRelease.objects.create(name="P", slug="p-notify", status=DataRelease.Status.PLANNED)
+    release = DataRelease.objects.create(name="P", slug="p-notify", status=DataRelease.Status.DRAFT)
     step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")
     a1 = Activity.objects.create(release=release, step=step, key="a1", label="A1", order=0)
     Activity.objects.create(release=release, step=step, key="a2", label="A2", order=1, assignee=reviewer)

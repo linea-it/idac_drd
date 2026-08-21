@@ -1,4 +1,4 @@
-// O pivô: o plano é editável também em execução — o save sempre manda o
+// O pivô: o draft é editável também em execução — o save sempre manda o
 // payload estrutural completo. A única restrição de modo: status não muda em
 // draft (a execução só começa após o gesto de start).
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";

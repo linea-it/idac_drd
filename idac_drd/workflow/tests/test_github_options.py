@@ -22,7 +22,7 @@ def clear_github_cache():
 @pytest.fixture
 def release(db):
     # Campos estruturais (repo/area/size) só podem ser alterados em draft
-    return make_release("DP-Test", slug="dp-test", status="planned")
+    return make_release("DP-Test", slug="dp-test", status="draft")
 
 
 @pytest.fixture

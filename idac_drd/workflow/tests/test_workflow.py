@@ -7,7 +7,7 @@ from idac_drd.workflow.services import (
     WorkflowError,
     add_activity,
     archive_release,
-    create_plan,
+    create_draft,
     duplicate_activity,
     transition_activity,
 )
@@ -100,7 +100,7 @@ def test_blocked_cannot_go_to_review(release, user):
 @pytest.mark.django_db
 def test_clone_copies_deps():
     source = make_release("R1")
-    plan = create_plan(name="R1 copy", copy_from_release=source)
+    plan = create_draft(name="R1 copy", copy_from_release=source)
     assert plan.activities.count() == 2
     a2 = plan.activities.get(key="step-2")
     assert list(a2.depends_on.values_list("key", flat=True)) == ["step-1"]
@@ -108,7 +108,7 @@ def test_clone_copies_deps():
 
 @pytest.mark.django_db
 def test_add_activity_and_archive_readonly(user):
-    release = make_release("DP-Test", status="planned")
+    release = make_release("DP-Test", status="draft")
     step = release.steps.get(key="a")
     after = release.activities.get(key="step-1")
     new = add_activity(release, label="Inserted", step=step, after=after)
@@ -138,7 +138,7 @@ def test_api_transition_gate(release, user):
 
 @pytest.mark.django_db
 def test_api_activity_mode(user):
-    release = make_release("DP-Test", status="planned")
+    release = make_release("DP-Test", status="draft")
     client = APIClient()
     client.force_authenticate(user=user)
     step = release.steps.get(key="a")
@@ -182,9 +182,9 @@ def test_api_create_user_staff_only(user, staff_user):
 
 @pytest.mark.django_db
 def test_api_activity_edit_step_and_deps(user):
-    release = make_release("DP-Test", status="planned")
+    release = make_release("DP-Test", status="draft")
     step_b = release.steps.get(key="b")  # step vazio (activities estão no step a)
-    other = make_release("Other", status="planned")
+    other = make_release("Other", status="draft")
     other_step = other.steps.first()
     a1 = release.activities.get(key="step-1")
     a3 = add_activity(release, label="Step 3", step=release.steps.get(key="a"))
@@ -201,6 +201,7 @@ def test_api_activity_edit_step_and_deps(user):
     assert a1.label == "Renamed"
     assert a1.step_id == step_b.id
     assert list(a1.depends_on.values_list("id", flat=True)) == [a3.id]
+    assert a1.status == Activity.Status.BLOCKED
 
     res = client.patch(f"/api/activities/{a1.id}/", {"step_id": other_step.id}, format="json")
     assert res.status_code == 400
@@ -213,8 +214,39 @@ def test_api_activity_edit_step_and_deps(user):
 
 
 @pytest.mark.django_db
+def test_patch_depends_on_in_draft_blocks_like_import(user):
+    """Save no draft com depends_on pendente não pode ficar todo+cadeado.
+
+    O import já chamava _block_until_prerequisites; o PATCH do drawer não.
+    """
+    release = make_release("DP-Test", status="draft")
+    source = release.activities.get(key="step-2")  # blocked, depende de step-1
+    clone = duplicate_activity(source)
+    assert clone.status == Activity.Status.TODO
+    assert list(clone.depends_on.all()) == []
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    # Save do drawer ainda com os deps da original (estado obsoleto)
+    res = client.patch(
+        f"/api/activities/{clone.id}/",
+        {
+            "status": source.status,
+            "depends_on_ids": list(source.depends_on.values_list("id", flat=True)),
+        },
+        format="json",
+    )
+    assert res.status_code == 200
+    clone.refresh_from_db()
+    assert list(clone.depends_on.values_list("key", flat=True)) == ["step-1"]
+    assert clone.status == Activity.Status.BLOCKED
+    assert clone.blocked_reason.startswith("Waiting on prerequisites")
+    assert res.data["locked"] is False
+
+
+@pytest.mark.django_db
 def test_api_activity_rejects_dep_cycle(user):
-    release = make_release("DP-Test", status="planned")
+    release = make_release("DP-Test", status="draft")
     client = APIClient()
     client.force_authenticate(user=user)
     a1 = release.activities.get(key="step-1")
@@ -227,7 +259,7 @@ def test_api_activity_rejects_dep_cycle(user):
 
 @pytest.mark.django_db
 def test_api_move_activity(user):
-    release = make_release("DP-Test", status="planned")
+    release = make_release("DP-Test", status="draft")
     step = release.steps.get(key="a")
     add_activity(release, label="Third", step=step, after=release.activities.get(key="step-2"))
     a1, a2, a3 = sorted(release.activities.all(), key=lambda a: a.order)
@@ -294,13 +326,13 @@ def test_api_unarchive_release(release, staff_user):
     assert res.status_code == 200
     release.refresh_from_db()
     # sem nenhuma atividade iniciada, desarquivar volta para draft
-    assert release.status == DataRelease.Status.PLANNED
+    assert release.status == DataRelease.Status.DRAFT
     assert release.archived_at is None
 
 
 @pytest.mark.django_db
 def test_duplicate_activity_copies_content_not_deps():
-    release = make_release("DP-Test", status="planned")
+    release = make_release("DP-Test", status="draft")
     source = release.activities.get(key="step-1")
     below = release.activities.get(key="step-2")
     source.description = "Do the thing"
@@ -335,7 +367,7 @@ def test_duplicate_activity_copies_content_not_deps():
 
 @pytest.mark.django_db
 def test_api_duplicate_activity(user):
-    release = make_release("DP-Test", status="planned")
+    release = make_release("DP-Test", status="draft")
     source = release.activities.get(key="step-2")
     client = APIClient()
     client.force_authenticate(user=user)

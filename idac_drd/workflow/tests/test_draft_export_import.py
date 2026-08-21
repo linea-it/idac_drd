@@ -1,4 +1,4 @@
-"""Export/import de PLAN em JSON: round-trip fiel + validações.
+"""Export/import de draft em JSON: round-trip fiel + validações.
 
 O formato de arquivo (v1) é a fonte canônica do shape: o que o export
 produz é exatamente o que o import consome. Referências por key/email —
@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 
 from idac_drd.users.models import ExternalIdentity
 from idac_drd.workflow.models import Activity, DataRelease
-from idac_drd.workflow.services import export_plan_payload, import_plan_payload
+from idac_drd.workflow.services import export_draft_payload, import_draft_payload
 from idac_drd.workflow.tests.helpers import make_release
 
 User = get_user_model()
@@ -31,7 +31,7 @@ def user(db):
 
 def base_payload(**overrides):
     payload = {
-        "format": "idac_drd-plan",
+        "format": "idac_drd-draft",
         "version": 1,
         "name": "DR1",
         "steps": [
@@ -70,9 +70,9 @@ def test_export_shape_uses_keys_and_email_not_ids(identity):
     act.assignee = identity
     act.save()
 
-    payload = export_plan_payload(source)
+    payload = export_draft_payload(source)
 
-    assert payload["format"] == "idac_drd-plan"
+    assert payload["format"] == "idac_drd-draft"
     assert payload["version"] == 1
     assert payload["name"] == "Source"
     assert [s["key"] for s in payload["steps"]] == ["a", "b"]
@@ -105,13 +105,13 @@ def test_round_trip_reproduces_structure_and_resets_status(identity):
     act.assignee = identity
     act.save()
 
-    payload = export_plan_payload(source)
+    payload = export_draft_payload(source)
     # nome novo no import: slug é único, a release de origem continua existindo
     payload["name"] = "Imported"
-    plan = import_plan_payload(payload)
+    plan = import_draft_payload(payload)
 
-    # release importada nasce planned (draft), como qualquer plano
-    assert plan.status == DataRelease.Status.PLANNED
+    # release importada nasce draft, como qualquer rascunho
+    assert plan.status == DataRelease.Status.DRAFT
     assert plan.started_at is None
     assert plan.template_key == ""
     assert list(plan.steps.values_list("key", flat=True)) == ["a", "b"]
@@ -157,11 +157,11 @@ def post_import(payload, user):
 
 
 @pytest.mark.django_db
-def test_api_import_creates_planned_release(user):
+def test_api_import_creates_draft_release(user):
     res = post_import(base_payload(), user)
 
     assert res.status_code == 201
-    assert res.data["status"] == DataRelease.Status.PLANNED
+    assert res.data["status"] == DataRelease.Status.DRAFT
     plan = DataRelease.objects.get(slug="dr1")
     assert plan.steps.count() == 2
     assert plan.activities.count() == 2
@@ -217,6 +217,13 @@ def test_import_rejects_unknown_format_and_version(user):
     assert post_import(base_payload(version=2), user).status_code == 400
 
 
+@pytest.mark.django_db
+def test_import_accepts_legacy_plan_format(user):
+    res = post_import(base_payload(format="idac_drd-plan"), user)
+    assert res.status_code == 201
+    assert res.data["status"] == DataRelease.Status.DRAFT
+
+
 # ── endpoints ────────────────────────────────────────────────────────────────
 
 
@@ -236,10 +243,10 @@ def test_api_export_endpoint(user):
 
 @pytest.mark.django_db
 def test_api_export_works_for_any_status(user):
-    # exportar uma release executada permite planejar a próxima a partir dela
+    # exportar uma release executada permite criar o próximo draft a partir dela
     client = APIClient()
     client.force_authenticate(user=user)
-    for status in ("planned", "active", "completed", "archived"):
+    for status in ("draft", "active", "completed", "archived"):
         release = make_release(f"Source {status}", status=status)
         res = client.get(f"/api/releases/{release.slug}/export/")
         assert res.status_code == 200
