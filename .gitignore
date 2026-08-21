@@ -20,3 +20,4 @@ config/certificates/*.key
 config/certificates/*.cert
 !config/certificates/README.md
 /docker-compose.yml
+.cursorignore

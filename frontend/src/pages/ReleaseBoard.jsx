@@ -57,6 +57,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameName, setRenameName] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteDraftOpen, setDeleteDraftOpen] = useState(false);
   // modo de edição explícito da execução: Edit habilita, Save finaliza
   const [editMode, setEditMode] = useState(false);
 
@@ -168,6 +169,17 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
     } catch (err) {
       setError(err.message);
       throw err;
+    }
+  }
+
+  async function confirmDeleteDraft() {
+    setError("");
+    try {
+      await api.del(`/api/releases/${releaseSlug}/`);
+      window.location.href = document.querySelector(".navbar-brand")?.getAttribute("href") || "/";
+    } catch (err) {
+      setError(err.message);
+      setDeleteDraftOpen(false);
     }
   }
 
@@ -403,9 +415,20 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
               Start execution
             </Button>
           )}
-          {(draft || inExecution || completed) && isStaff && (
+          {(inExecution || completed) && isStaff && (
             <Button variant="outlined" color="warning" sx={{ whiteSpace: "nowrap" }} onClick={archive}>
               Archive
+            </Button>
+          )}
+          {draft && (
+            <Button
+              startIcon={<DeleteIcon />}
+              variant="outlined"
+              color="error"
+              sx={{ whiteSpace: "nowrap" }}
+              onClick={() => setDeleteDraftOpen(true)}
+            >
+              Delete draft
             </Button>
           )}
           {readonly && isStaff && (
@@ -615,6 +638,20 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
             </Button>
           </DialogActions>
         </form>
+      </Dialog>
+      <Dialog open={deleteDraftOpen} onClose={() => setDeleteDraftOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Delete draft</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            "{release?.name}" and its steps, activities, and history will be deleted. This can't be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDraftOpen(false)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={confirmDeleteDraft}>
+            Delete
+          </Button>
+        </DialogActions>
       </Dialog>
       <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} fullWidth maxWidth="xs">
         <DialogTitle>Delete step</DialogTitle>

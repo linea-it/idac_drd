@@ -17,6 +17,9 @@ class ReleaseBoardPage(ReactPageView):
     template_name = "pages/release_board.html"
 
 
-class AnalyticsPage(ReactPageView):
-    page = "analytics"
-    template_name = "pages/analytics.html"
+class DraftsPage(ReactPageView):
+    page = "drafts"
+
+
+class ArchivedPage(ReactPageView):
+    page = "archived"

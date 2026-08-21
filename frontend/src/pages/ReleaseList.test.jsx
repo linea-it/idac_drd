@@ -1,4 +1,4 @@
-// Diálogo "New release": a terceira origem (JSON file) lê um arquivo de draft
+// Diálogo "New draft": a terceira origem (JSON file) lê um arquivo de draft
 // e cria o draft via POST /api/releases/import/.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { vi } from "vitest";
@@ -29,14 +29,14 @@ const VALID_DRAFT = {
 };
 
 async function openDialogWithJsonOrigin() {
-  render(<ReleaseList />);
-  fireEvent.click(await screen.findByRole("button", { name: "Create release" }));
+  render(<ReleaseList page="drafts" />);
+  fireEvent.click(await screen.findByRole("button", { name: "New draft" }));
   const dialog = await screen.findByRole("dialog");
   fireEvent.click(within(dialog).getByRole("radio", { name: "JSON file" }));
   return dialog;
 }
 
-test("diálogo New release oferece a origem JSON file com seletor de arquivo", async () => {
+test("diálogo New draft oferece a origem JSON file com seletor de arquivo", async () => {
   const dialog = await openDialogWithJsonOrigin();
   expect(dialog.querySelector('input[type="file"]')).toBeInTheDocument();
 });
@@ -78,4 +78,26 @@ test("arquivo sem steps/activities é rejeitado como inválido", async () => {
     target: { files: [draftFile(JSON.stringify({ name: "vazio" }), "empty.json")] },
   });
   expect(await screen.findByText("This file needs a steps list and an activities list.")).toBeInTheDocument();
+});
+
+test("New draft só aparece na página Drafts", async () => {
+  render(<ReleaseList page="releases" />);
+  await screen.findByRole("heading", { name: "Releases" });
+  expect(screen.queryByRole("button", { name: "New draft" })).not.toBeInTheDocument();
+});
+
+test("página Releases agrupa em execução e concluídas", async () => {
+  apiMock.get.mockImplementation((path) => {
+    if (path === "/api/releases/")
+      return Promise.resolve([
+        { id: 1, name: "DR1", slug: "dr1", status: "active", steps: [], progress: { done: 0, total: 1, pct: 0 } },
+        { id: 2, name: "DR0", slug: "dr0", status: "completed", steps: [], progress: { done: 1, total: 1, pct: 100 } },
+      ]);
+    return Promise.reject(new Error(`unexpected: ${path}`));
+  });
+  render(<ReleaseList page="releases" />);
+  expect(await screen.findByText("In execution (1)")).toBeInTheDocument();
+  expect(screen.getByText("Completed (1)")).toBeInTheDocument();
+  expect(screen.getByText("DR1")).toBeInTheDocument();
+  expect(screen.getByText("DR0")).toBeInTheDocument();
 });

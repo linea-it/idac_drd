@@ -7,7 +7,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.authtoken.views import obtain_auth_token
 
 from idac_drd.users.views import linea_login
-from idac_drd.workflow.views import AnalyticsPage, ReactPageView, ReleaseBoardPage
+from idac_drd.workflow.views import ArchivedPage, DraftsPage, ReactPageView, ReleaseBoardPage
 
 # O form do admin usa app_path = request.get_full_path() (sem SCRIPT_NAME).
 # POST ia para /admin/login/ na raiz → Next.js /login?next=/drd/.
@@ -24,8 +24,9 @@ admin.site.login = _admin_login_prefixed
 
 urlpatterns = [
     path("", ReactPageView.as_view(), name="home"),
+    path("drafts/", DraftsPage.as_view(), name="drafts"),
+    path("archived/", ArchivedPage.as_view(), name="archived"),
     path("releases/<slug:slug>/", ReleaseBoardPage.as_view(), name="release-board"),
-    path("analytics/", AnalyticsPage.as_view(), name="analytics"),
     path(settings.ADMIN_URL, admin.site.urls),
     path("users/", include("idac_drd.users.urls", namespace="users")),
     path("accounts/", include("allauth.urls")),

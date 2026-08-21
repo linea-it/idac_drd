@@ -45,9 +45,10 @@ test("não existe mais 'Back to draft' no board em draft", async () => {
   render(<ReleaseBoard releaseSlug="release-smoke" isStaff={true} />);
   await screen.findByText("Release Smoke");
   expect(screen.queryByText("Back to draft")).not.toBeInTheDocument();
-  // as ações de draft continuam: Add step, Add activity, Start execution, Archive
+  // as ações de draft continuam: Add step, Add activity, Start execution, Delete draft
   expect(screen.getByRole("button", { name: "Add step" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Delete draft" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
 });
 
 test("não-staff não vê ações de ciclo de vida (start/archive), só estrutura", async () => {
@@ -55,6 +56,7 @@ test("não-staff não vê ações de ciclo de vida (start/archive), só estrutur
   await screen.findByText("Release Smoke");
   expect(screen.queryByRole("button", { name: "Start execution" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Delete draft" })).toBeInTheDocument();
   // edição estrutural e aprovação continuam para todos
   expect(screen.getByRole("button", { name: "Add step" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Add activity" })).toBeInTheDocument();

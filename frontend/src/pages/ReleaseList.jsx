@@ -28,8 +28,6 @@ import {
   RadioGroup,
   Select,
   Stack,
-  Tab,
-  Tabs,
   TextField,
   Typography,
 } from "@mui/material";
@@ -57,12 +55,26 @@ const CHIP_COLORS = {
   archived: "default",
 };
 
-// abas: drafts descartáveis | histórico oficial | arquivado
-const TABS = [
-  { key: "drafts", statuses: ["draft"], empty: "No drafts yet." },
-  { key: "releases", statuses: ["active", "completed"], empty: "No releases yet." },
-  { key: "archived", statuses: ["archived"], empty: "No archived releases." },
-];
+const PAGES = {
+  releases: {
+    title: "Releases",
+    subtitle: "Official data releases — in execution and completed.",
+    empty: "No releases yet.",
+    statuses: ["active", "completed"],
+  },
+  drafts: {
+    title: "Drafts",
+    subtitle: "Plan the next release. Drafts can be deleted.",
+    empty: "No drafts yet.",
+    statuses: ["draft"],
+  },
+  archived: {
+    title: "Archived",
+    subtitle: "Frozen releases. Restore from the board.",
+    empty: "No archived releases.",
+    statuses: ["archived"],
+  },
+};
 
 function ReleaseCard({ rel, onDelete }) {
   return (
@@ -182,7 +194,7 @@ function ReleaseCard({ rel, onDelete }) {
   );
 }
 
-export default function ReleaseList() {
+export default function ReleaseList({ page = "releases" }) {
   const [releases, setReleases] = useState([]);
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
@@ -195,7 +207,6 @@ export default function ReleaseList() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState("releases");
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   async function load() {
@@ -282,32 +293,39 @@ export default function ReleaseList() {
     Boolean(name) &&
     (origin === "blank" || (origin === "release" && copyReleaseSlug) || (origin === "json" && importedDraft));
 
-  const tabDef = TABS.find((t) => t.key === tab);
-  const counts = {
-    drafts: releases.filter((r) => r.status === "draft").length,
-    releases: releases.filter((r) => ["active", "completed"].includes(r.status)).length,
-    archived: releases.filter((r) => r.status === "archived").length,
-  };
-
+  const pageDef = PAGES[page] || PAGES.releases;
   const q = query.trim().toLowerCase();
   const items = releases.filter(
     (r) =>
-      tabDef.statuses.includes(r.status) &&
+      pageDef.statuses.includes(r.status) &&
       (!q || r.name.toLowerCase().includes(q) || (r.template_key || "").toLowerCase().includes(q)),
   );
+  const running = items.filter((r) => r.status === "active");
+  const completed = items.filter((r) => r.status === "completed");
+  const copySources = releases.filter((r) => r.status !== "draft");
+
+  function renderCards(list) {
+    return (
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "1fr" }}>
+        {list.map((rel) => (
+          <ReleaseCard key={rel.id} rel={rel} onDelete={setDeleteTarget} />
+        ))}
+      </Box>
+    );
+  }
 
   return (
     <Stack spacing={3}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
         <div>
-          <Typography variant="h5">Data Releases</Typography>
+          <Typography variant="h5">{pageDef.title}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Track progress across LSST data release workflows.
+            {pageDef.subtitle}
           </Typography>
         </div>
         <TextField
           size="small"
-          placeholder="Search releases"
+          placeholder="Search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           sx={{ minWidth: 220 }}
@@ -319,14 +337,16 @@ export default function ReleaseList() {
             ),
           }}
         />
-        <Button startIcon={<AddIcon />} variant="contained" onClick={() => setOpen(true)}>
-          Create release
-        </Button>
+        {page === "drafts" && (
+          <Button startIcon={<AddIcon />} variant="contained" onClick={() => setOpen(true)}>
+            New draft
+          </Button>
+        )}
       </Stack>
       {error && <Alert severity="error">{error}</Alert>}
       {loading && <LinearProgress />}
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>New release</DialogTitle>
+        <DialogTitle>New draft</DialogTitle>
         <DialogContent>
           <Stack component="form" id="create-release-form" onSubmit={createRelease} spacing={2} sx={{ pt: 1 }}>
             <TextField
@@ -370,7 +390,7 @@ export default function ReleaseList() {
                   value={copyReleaseSlug}
                   onChange={(e) => setCopyReleaseSlug(e.target.value)}
                 >
-                  {releases.map((r) => (
+                  {copySources.map((r) => (
                     <MenuItem key={r.slug} value={r.slug}>
                       {r.name}
                     </MenuItem>
@@ -387,21 +407,32 @@ export default function ReleaseList() {
           </Button>
         </DialogActions>
       </Dialog>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-        <Tab label={`Releases (${counts.releases})`} value="releases" />
-        <Tab label={`Drafts (${counts.drafts})`} value="drafts" />
-        <Tab label={`Archived (${counts.archived})`} value="archived" />
-      </Tabs>
-      {!items.length && !loading && (
+      {page === "releases" && !loading && (
+        <Stack spacing={3}>
+          <Stack spacing={1}>
+            <Typography variant="subtitle2">In execution ({running.length})</Typography>
+            {running.length ? renderCards(running) : (
+              <Typography variant="body2" color="text.secondary">
+                None in execution.
+              </Typography>
+            )}
+          </Stack>
+          <Stack spacing={1}>
+            <Typography variant="subtitle2">Completed ({completed.length})</Typography>
+            {completed.length ? renderCards(completed) : (
+              <Typography variant="body2" color="text.secondary">
+                No completed releases.
+              </Typography>
+            )}
+          </Stack>
+        </Stack>
+      )}
+      {page !== "releases" && !items.length && !loading && (
         <Typography variant="body2" color="text.secondary">
-          {tabDef.empty}
+          {pageDef.empty}
         </Typography>
       )}
-      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "1fr" }}>
-        {items.map((rel) => (
-          <ReleaseCard key={rel.id} rel={rel} onDelete={setDeleteTarget} />
-        ))}
-      </Box>
+      {page !== "releases" && renderCards(items)}
       <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} fullWidth maxWidth="xs">
         <DialogTitle>Delete draft</DialogTitle>
         <DialogContent>
