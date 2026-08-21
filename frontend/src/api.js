@@ -3,6 +3,14 @@ function getCsrf() {
   return root?.dataset?.csrfToken || "";
 }
 
+function apiUrl(path) {
+  if (!path.startsWith("/")) return path;
+  const root = document.getElementById("idac-drd-root");
+  const prefix = (root?.dataset?.apiPrefix || "").replace(/\/$/, "");
+  if (prefix && path.startsWith(`${prefix}/`)) return path;
+  return `${prefix}${path}`;
+}
+
 async function request(path, options = {}) {
   const headers = {
     Accept: "application/json",
@@ -14,7 +22,7 @@ async function request(path, options = {}) {
   if (options.method && options.method !== "GET") {
     headers["X-CSRFToken"] = getCsrf();
   }
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     credentials: "same-origin",
     ...options,
     headers,
