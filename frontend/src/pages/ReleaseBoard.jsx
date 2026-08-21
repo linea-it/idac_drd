@@ -24,7 +24,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../api";
+import { api, appUrl } from "../api";
 import { releaseStatusLabel } from "../activityStatus";
 import { downloadReport, downloadTextFile } from "../report";
 import ActivityDagBoard from "../components/ActivityDagBoard";
@@ -176,7 +176,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
     setError("");
     try {
       await api.del(`/api/releases/${releaseSlug}/`);
-      window.location.href = document.querySelector(".navbar-brand")?.getAttribute("href") || "/";
+      window.location.href = document.querySelector(".navbar-brand")?.getAttribute("href") || appUrl("/");
     } catch (err) {
       setError(err.message);
       setDeleteDraftOpen(false);

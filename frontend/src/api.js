@@ -3,7 +3,8 @@ function getCsrf() {
   return root?.dataset?.csrfToken || "";
 }
 
-function apiUrl(path) {
+/** Prefixa paths absolutos com SCRIPT_NAME (ex.: /drd em produção). */
+export function appUrl(path) {
   if (!path.startsWith("/")) return path;
   const root = document.getElementById("idac-drd-root");
   const prefix = (root?.dataset?.apiPrefix || "").replace(/\/$/, "");
@@ -22,7 +23,7 @@ async function request(path, options = {}) {
   if (options.method && options.method !== "GET") {
     headers["X-CSRFToken"] = getCsrf();
   }
-  const res = await fetch(apiUrl(path), {
+  const res = await fetch(appUrl(path), {
     credentials: "same-origin",
     ...options,
     headers,

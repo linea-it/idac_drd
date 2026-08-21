@@ -32,7 +32,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, appUrl } from "../api";
 import { releaseStatusLabel } from "../activityStatus";
 
 // estado de um step pelo percentual de atividades concluídas
@@ -79,7 +79,7 @@ const PAGES = {
 function ReleaseCard({ rel, onDelete }) {
   return (
     <Card elevation={2}>
-      <CardActionArea href={`/releases/${rel.slug}/`}>
+      <CardActionArea href={appUrl(`/releases/${rel.slug}/`)}>
         <CardContent>
           <Stack spacing={1}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">

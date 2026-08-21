@@ -5,7 +5,7 @@ import { vi } from "vitest";
 import ReleaseBoard from "./ReleaseBoard";
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() }));
-vi.mock("../api", () => ({ api: apiMock }));
+vi.mock("../api", () => ({ api: apiMock, appUrl: (path) => path }));
 
 const release = {
   id: 1,

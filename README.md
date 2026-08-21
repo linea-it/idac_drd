@@ -256,10 +256,10 @@ O frontend também não pode manter `/api/...` como caminho absoluto fixo. Em `i
 data-api-prefix="{{ request.META.SCRIPT_NAME }}"
 ```
 
-`frontend/src/api.js` lê esse valor e acrescenta o prefixo a todo caminho iniciado por `/`, sem duplicá-lo. Assim:
+`frontend/src/api.js` expõe `appUrl()`, que lê esse valor e acrescenta o prefixo a todo caminho iniciado por `/`, sem duplicá-lo. As chamadas da API e os links/redirects de página no React (por exemplo `/releases/<slug>/`) passam por essa função. Assim:
 
-- localmente, `SCRIPT_NAME` é vazio e a chamada continua `/api/...`;
-- em produção, `SCRIPT_NAME` é `/drd` e a chamada passa a `/drd/api/...`.
+- localmente, `SCRIPT_NAME` é vazio e o caminho continua `/api/...` ou `/releases/...`;
+- em produção, `SCRIPT_NAME` é `/drd` e o caminho passa a `/drd/api/...` ou `/drd/releases/...`.
 
 O template também usa o prefixo para construir o parâmetro `next` do login. O Vite usa `base: "./"`, permitindo que os assets do bundle sejam carregados sob `/static/...` ou `/drd/static/...`.
 
@@ -275,7 +275,7 @@ Para publicar outra aplicação com a mesma topologia:
 6. encaminhe `Host` e `X-Forwarded-Proto` e configure `SECURE_PROXY_SSL_HEADER`;
 7. revise todos os headers `Location`, sem alterar redirects para serviços externos;
 8. verifique formulários que usam `request.get_full_path()`, especialmente o admin;
-9. forneça o `SCRIPT_NAME` ao frontend para chamadas de API;
+9. forneça o `SCRIPT_NAME` ao frontend para chamadas de API e links de página;
 10. teste raiz, admin, login/logout, SAML, API, arquivos estáticos, query strings e redirects externos.
 
 As URLs públicas esperadas são:
