@@ -309,7 +309,7 @@ if AUTH_SAML2_ENABLED:
                 "authn_requests_signed": True,
                 "want_assertions_signed": False,
                 "only_use_keys_in_metadata": True,
-                "allow_unsolicited": False,
+                "allow_unsolicited": True,
             },
         },
         "metadata": {
