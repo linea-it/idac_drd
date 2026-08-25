@@ -307,7 +307,7 @@ if AUTH_SAML2_ENABLED:
                 "name_id_format_allow_create": False,
                 "want_response_signed": True,
                 "authn_requests_signed": True,
-                "want_assertions_signed": True,
+                "want_assertions_signed": False,
                 "only_use_keys_in_metadata": True,
                 "allow_unsolicited": False,
             },
