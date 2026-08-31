@@ -139,32 +139,33 @@ def notify_ready(activity: Activity) -> None:
 
 
 def notify_review(activity: Activity) -> None:
-    """Avisa que ``activity`` aguarda review (ação do aprovador).
+    """Avisa que ``activity`` aguarda review.
 
-    Canal com menção ao aprovador natural (assignee da próxima activity do
-    mesmo step, ``next_in_step``); DM a ele só como fallback sem canal. Sem
-    aprovador específico (última do step, próxima sem assignee ou sem
-    slack_id) só o canal, sem menção; sem canal e sem DM-alvo o aviso é
-    pulado — staff/qualquer pessoa seguem podendo aprovar pelo board.
+    Qualquer pessoa pode aprovar. O canal menciona os assignees das
+    atividades que dependem desta (quem é desbloqueado pelo done); DM a
+    um deles só como fallback sem canal. Sem dependentes com slack_id,
+    só o canal, sem menção; sem canal e sem DM-alvo o aviso é pulado.
     """
     if not settings.SLACK_ENABLED:
         return
     if activity.release.status != DataRelease.Status.ACTIVE:
         return
 
-    next_activity = activity.next_in_step()
-    assignee = next_activity.assignee if next_activity else None
-    recipient = assignee.slack_id if assignee else None
+    dependents = list(activity.dependents.select_related("assignee").order_by("order", "id"))
+    slack_ids = [dep.assignee.slack_id for dep in dependents if dep.assignee and dep.assignee.slack_id]
+    recipient = slack_ids[0] if slack_ids else None
     if not settings.SLACK_CHANNEL_ID and not recipient:
         return
 
     head = _headline(activity)
     link = _release_link(activity.release, "Revisar entrega")
-    if next_activity is not None:
-        body_channel = f"{_mention(recipient)}a entrega espera a sua revisão. Aprovar libera *{next_activity.label}*."
-        body_dm = f"a entrega espera a sua revisão. Aprovar libera *{next_activity.label}*."
+    mentions = "".join(_mention(sid) for sid in slack_ids)
+    if dependents:
+        labels = ", ".join(f"*{dep.label}*" for dep in dependents)
+        body_channel = f"{mentions}a entrega espera revisão. Aprovar libera {labels}."
+        body_dm = f"a entrega espera revisão. Aprovar libera {labels}."
     else:
-        body_channel = "A aprovação fica a cargo da equipe."
+        body_channel = "Qualquer pessoa pode aprovar esta entrega."
         body_dm = body_channel
     try:
         thread_ts = _ensure_step_thread(activity.step) if settings.SLACK_CHANNEL_ID else None

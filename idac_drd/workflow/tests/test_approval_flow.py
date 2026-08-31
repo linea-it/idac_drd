@@ -1,9 +1,8 @@
-"""Fluxo de aprovação: done = aceito por quem recebe.
+"""Fluxo de aprovação: done = aceito por qualquer pessoa autenticada.
 
-in_progress → in_review (executor entrega) → done (aprovador) | in_progress
-(rejeição com motivo). Aprovador: assignee do próximo activity do mesmo step
-(match por email); última do step → staff; próximo sem assignee → qualquer
-pessoa; staff e chamadas de sistema (actor=None) sempre aprovam.
+in_progress → in_review (executor entrega) → done (qualquer um aprova) |
+in_progress (rejeição com motivo). Assignees das atividades dependentes
+são avisados no Slack; não há gate de papel (staff / próximo do step).
 """
 
 import pytest
@@ -33,7 +32,6 @@ def approval_release(db, identity):
     release = DataRelease.objects.create(name="Approval", slug="approval", status=DataRelease.Status.ACTIVE)
     step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")
     Activity.objects.create(release=release, step=step, key="a1", label="A1", order=0)
-    # a2 (próxima do step) tem assignee: é quem aprova a1
     Activity.objects.create(release=release, step=step, key="a2", label="A2", order=1, assignee=identity)
     return release
 
@@ -79,11 +77,12 @@ def test_next_activity_assignee_approves(approval_release, alice):
     assert a1.status == Activity.Status.DONE
 
 
-def test_wrong_approver_rejected(approval_release, alice, bob):
+def test_anyone_can_approve(approval_release, alice, bob):
     a1 = approval_release.activities.get(key="a1")
     send_to_review(a1, alice)
-    with pytest.raises(WorkflowError, match="next activity's assignee"):
-        transition_activity(a1, to_status=Activity.Status.DONE, actor=bob)
+    transition_activity(a1, to_status=Activity.Status.DONE, actor=bob)
+    a1.refresh_from_db()
+    assert a1.status == Activity.Status.DONE
 
 
 def test_staff_approves_anywhere(approval_release, admin):
@@ -94,12 +93,10 @@ def test_staff_approves_anywhere(approval_release, admin):
     assert a1.status == Activity.Status.DONE
 
 
-def test_last_activity_needs_staff(approval_release, alice, admin):
+def test_last_activity_anyone_approves(approval_release, alice):
     a2 = approval_release.activities.get(key="a2")  # última do step
     send_to_review(a2, alice)
-    with pytest.raises(WorkflowError, match="next activity's assignee"):
-        transition_activity(a2, to_status=Activity.Status.DONE, actor=alice)
-    transition_activity(a2, to_status=Activity.Status.DONE, actor=admin)
+    transition_activity(a2, to_status=Activity.Status.DONE, actor=alice)
     a2.refresh_from_db()
     assert a2.status == Activity.Status.DONE
 
@@ -162,7 +159,7 @@ def _client_for(user):
 
 
 def test_api_full_approval_cycle(approval_release, alice, bob):
-    """in_progress → in_review → done via PATCH; gates de ator e de origem."""
+    """in_progress → in_review → done via PATCH; gate de origem (não de ator)."""
     a1 = approval_release.activities.get(key="a1")
     alice_client = _client_for(alice)
     bob_client = _client_for(bob)
@@ -174,15 +171,12 @@ def test_api_full_approval_cycle(approval_release, alice, bob):
     )
     assert alice_client.patch(f"/api/activities/{a1.id}/", {"status": "in_review"}).status_code == 200
 
-    # done direto de in_progress → 400 (gate)
+    # done direto de in_progress → 400 (gate de origem)
     a2 = approval_release.activities.get(key="a2")
     assert bob_client.patch(f"/api/activities/{a2.id}/", {"status": "done"}).status_code == 400
 
-    # aprovar fora do papel (bob não é o próximo do step) → 400
-    assert bob_client.patch(f"/api/activities/{a1.id}/", {"status": "done"}).status_code == 400
-
-    # aprovadora (alice, assignee do próximo activity) aprova → 200
-    assert alice_client.patch(f"/api/activities/{a1.id}/", {"status": "done"}).status_code == 200
+    # bob não executou a1, mas qualquer pessoa pode aprovar
+    assert bob_client.patch(f"/api/activities/{a1.id}/", {"status": "done"}).status_code == 200
     a1.refresh_from_db()
     assert a1.status == Activity.Status.DONE
 
