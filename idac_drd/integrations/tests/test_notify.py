@@ -50,6 +50,7 @@ def release(db):
     )
     a1 = Activity.objects.create(release=release, step=step, key="a1", label="A1", order=0)
     a2 = Activity.objects.create(release=release, step=step, key="a2", label="A2", order=1, assignee=reviewer)
+    a2.depends_on.add(a1)
     return release, a1, a2
 
 
@@ -99,7 +100,7 @@ def test_no_notification_outside_active_release(release, slack):
 
 
 def test_last_activity_of_step_no_reviewer(release, slack):
-    release, _, a2 = release  # a2 é a última do step → staff aprova
+    release, _, a2 = release  # a2 sem dependentes → sem menção/DM
     with override_settings(SLACK_ENABLED=True):
         notify.notify_review(a2)
     assert not slack.dms
@@ -115,7 +116,7 @@ def test_assignee_without_slack_id_skipped(release, slack):
 
 
 def test_review_goes_to_channel_when_configured(release, slack):
-    release, _, a2 = release  # última do step: sem aprovador para DM
+    release, _, a2 = release  # sem dependentes: sem aprovador para DM
     with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM", SITE_URL=SITE):
         notify.notify_review(a2)
 
@@ -123,13 +124,13 @@ def test_review_goes_to_channel_when_configured(release, slack):
     assert [c for c, _ in slack.channels] == ["C_TEAM"]
     text = slack.channels[0][1]
     assert "Release 1 · *A2*" in text
-    assert "A aprovação fica a cargo da equipe." in text
+    assert "Qualquer pessoa pode aprovar esta entrega." in text
     assert f"<{SITE}/releases/r1/|Revisar entrega>" in text
     assert "<@" not in text  # sem aprovador nomeado
 
 
 def test_review_with_channel_skips_dm(release, slack):
-    _, a1, _ = release  # próxima activity (a2) tem assignee bob
+    _, a1, _ = release  # dependente (a2) tem assignee bob
     with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM", SITE_URL=SITE):
         notify.notify_review(a1)
 

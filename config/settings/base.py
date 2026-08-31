@@ -136,7 +136,9 @@ FORM_RENDERER = "django.forms.renderers.TemplatesSetting"
 CRISPY_TEMPLATE_PACK = "bootstrap5"
 CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
 
+SESSION_COOKIE_NAME = "idac_drd_sessionid"
 SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_NAME = "idac_drd_csrftoken"
 CSRF_COOKIE_HTTPONLY = False
 X_FRAME_OPTIONS = "DENY"
 

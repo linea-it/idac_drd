@@ -59,18 +59,18 @@ imprimir path relativo).
 |---|---|---|---|
 | início da release (`start_release`) | `notify_release_started` | canal, **top-level** | âncora por step (ver §4) |
 | atividade pronta para iniciar (`start_release`, `add_activity` em release ativa, desbloqueio manual `blocked`→`todo`, desbloqueio automático de pré-requisitos) | `notify_ready` | canal + menção ao assignee; DM fallback | `«@»esta atividade está pronta para você começar.` / `sua atividade está pronta para você começar.` — CTA "Abrir a atividade" |
-| enviada à revisão (`todo`→`in_review`) | `notify_review` | canal + menção ao **aprovador natural**; DM fallback | `«@»a entrega espera a sua revisão. Aprovar libera *«próxima»*.` — CTA "Revisar entrega" |
+| enviada à revisão (`todo`→`in_review`) | `notify_review` | canal + menção aos **assignees das atividades dependentes**; DM fallback | `«@»a entrega espera revisão. Aprovar libera *«dependentes»*.` — CTA "Revisar entrega" |
 | rejeição (`in_review`→`in_progress` com motivo) | `notify_rejection` | canal + menção ao executor; DM fallback | `«@»a revisão devolveu a atividade.` + `Revisada por «reviewer».` + `*Motivo:* «comment»` + `Corrija e envie de novo.` — CTA "Corrigir e reenviar" |
 | release concluída (aprovação da última atividade) | `notify_release_complete` | canal, **top-level** | `*«release»* concluído. Todas as atividades foram aprovadas.` — CTA "Ver DPN" |
 
 Detalhes por superfície:
 
-- **Aprovador natural** (`notify_review`): o assignee da **próxima activity do
-  mesmo step** (`next_in_step`) — aprovar a entrega libera a próxima. Última do
-  step, próxima sem assignee ou sem `slack_id` → só o canal, sem menção
-  ("A aprovação fica a cargo da equipe."); sem canal e sem DM-alvo, o aviso é
-  pulado — staff segue podendo aprovar pelo board. Cada `in_review` notifica
-  de novo (inclusive após rejeição).
+- **Quem aprova / `notify_review`**: qualquer pessoa autenticada pode
+  aprovar pelo board. O aviso menciona os assignees das **atividades que
+  dependem desta** (aprovar desbloqueia essas). Sem dependentes, sem
+  assignee ou sem `slack_id` → só o canal, sem menção ("Qualquer pessoa
+  pode aprovar esta entrega."); sem canal e sem DM-alvo, o aviso é
+  pulado. Cada `in_review` notifica de novo (inclusive após rejeição).
 - **`notify_rejection`**: `comment` é obrigatório na rejeição e entra no corpo.
   Sem executor com `slack_id` → só o canal sem menção.
 - **`notify_ready`**: sem assignee com `slack_id` → só o canal; sem canal e sem

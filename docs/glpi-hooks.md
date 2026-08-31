@@ -28,7 +28,8 @@ estado do app.
 
 Uma sessão nova por chamada (`initSession` login/password → Session-Token;
 App-Token em todos os requests) — stateless, sem cache (tokens expiram em
-~30min). Credenciais obrigatórias: `GLPI_API_URL` (https), `GLPI_USER`,
+~30min). Credenciais obrigatórias: `GLPI_API_URL` (helpdesk-dev:
+`http://186.232.60.56/apirest.php`, sem TLS), `GLPI_USER`,
 `GLPI_PASSWORD`, `GLPI_APP_TOKEN`; ausentes → `ImproperlyConfigured` só na
 chamada.
 
@@ -178,9 +179,13 @@ warning no log e ticket sem atribuição.
 
 ## 6. Configuração
 
-`.env`: `GLPI_ENABLED=True`, `GLPI_API_URL` (https obrigatório — credenciais
-viajam em texto plano caso contrário), `GLPI_USER`, `GLPI_PASSWORD`,
+`.env`: `GLPI_ENABLED=True`, `GLPI_API_URL` (helpdesk-dev:
+`http://186.232.60.56/apirest.php`), `GLPI_USER`, `GLPI_PASSWORD`,
 `GLPI_APP_TOKEN`.
+
+O cliente API no GLPI autoriza **somente** IPs de origem `10.24.2.90` a
+`10.24.2.94`. Chamadas de fora (ex.: NAT `186.232.60.71`) recebem
+`ERROR_NOT_ALLOWED_IP`.
 
 ## 7. Diagnóstico
 

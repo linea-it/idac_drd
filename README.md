@@ -189,7 +189,7 @@ Cada item resolve uma parte diferente:
 
 - `FORCE_SCRIPT_NAME` informa ao Django que a aplicação ocupa `/drd` e faz `reverse()`, `{% url %}` e `request.META.SCRIPT_NAME` gerarem caminhos públicos prefixados;
 - `STATIC_URL` e `MEDIA_URL` geram links públicos como `/drd/static/...` e `/drd/media/...`;
-- `CSRF_COOKIE_PATH` e `SESSION_COOKIE_PATH` restringem os cookies à aplicação, evitando colisões com outros sistemas no mesmo domínio;
+- `CSRF_COOKIE_PATH` e `SESSION_COOKIE_PATH` restringem os cookies à aplicação; `CSRF_COOKIE_NAME` (`idac_drd_csrftoken`) e `SESSION_COOKIE_NAME` (`idac_drd_sessionid`) evitam colisão de nome com outros sistemas no mesmo domínio;
 - `WHITENOISE_STATIC_PREFIX` permanece `/static/` porque o nginx já removeu `/drd` quando a requisição chega ao WhiteNoise.
 
 O mesmo arquivo também configura:
@@ -339,13 +339,15 @@ Implementação:
 
 ```env
 GLPI_ENABLED=True
-GLPI_API_URL=https://helpdesk-dev.linea.org.br/apirest.php
+# 186.232.60.56: https://helpdesk-dev.linea.org.br
+# 186.232.60.44: https://helpdesk.linea.org.br
+GLPI_API_URL=http://186.232.60.56/apirest.php
 GLPI_USER=<usuario-de-servico>
 GLPI_PASSWORD=<senha>
 GLPI_APP_TOKEN=<app-token>
 ```
 
-Use HTTPS e substitua o host pelo ambiente GLPI de destino.
+helpdesk-dev usa HTTP (sem `https`). O cliente da API aceita **somente** origem `10.24.2.65` a `10.24.2.94` (`ERROR_NOT_ALLOWED_IP` fora desse range). O host do DRD em produção precisa estar nesse intervalo.
 
 #### 1. Habilitar e registrar o cliente da API
 
@@ -355,9 +357,10 @@ No GLPI, acesse **Setup → General → API** e configure:
 - **Enable login with credentials:** `Yes`, pois o cliente abre a sessão com `GLPI_USER` e `GLPI_PASSWORD`;
 - **Enable login with external token:** `Yes`;
 - adicione e habilite um cliente de API para a aplicação, por exemplo `IDAC-DRD`;
-- copie o App Token desse cliente para `GLPI_APP_TOKEN`.
+- copie o App Token desse cliente para `GLPI_APP_TOKEN`;
+- **IPv4 address range:** `10.24.2.65-10.24.2.94`.
 
-O campo **URL of the API** exibido nessa tela corresponde a `GLPI_API_URL`, incluindo `/apirest.php`. O cliente chama `initSession` com login e senha e envia o header `App-Token` em todas as requisições.
+O campo **URL of the API** no GLPI pode mostrar o hostname; no DRD o helpdesk-dev aponta para `http://186.232.60.56/apirest.php`. O cliente chama `initSession` com login e senha e envia o header `App-Token` em todas as requisições.
 
 #### 2. Configurar o perfil do usuário de serviço
 

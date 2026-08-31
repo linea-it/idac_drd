@@ -161,27 +161,6 @@ def create_draft(
     return release
 
 
-def _approver_allowed(activity: Activity, actor) -> bool:
-    """Quem pode aprovar (→ done) uma atividade em revisão.
-
-    Aprovador natural: assignee da próxima activity do mesmo step (match por
-    email); sem próxima activity, só staff; próxima sem assignee, qualquer pessoa.
-    Chamadas de sistema (actor=None) passam — e staff sempre pode aprovar
-    (dono do processo; evita beco sem saída com assignees sem conta no app).
-    """
-    if actor is None:
-        return True
-    if getattr(actor, "is_staff", False):
-        return True
-    next_activity = activity.next_in_step()
-    if next_activity is None:
-        return False
-    if next_activity.assignee is None:
-        return True
-    email = (getattr(actor, "email", "") or "").lower()
-    return bool(email) and email == (next_activity.assignee.email or "").lower()
-
-
 def _assert_mutable(release: DataRelease) -> None:
     if release.is_readonly:
         raise WorkflowError("This release is archived, so it can't be changed.")
@@ -271,11 +250,9 @@ def transition_activity(
         if from_status != Activity.Status.IN_PROGRESS:
             raise WorkflowError("Send to review only from In progress.")
     elif to_status == Activity.Status.DONE:
-        # done = aprovação: só de in_review e pelo aprovador certo
+        # done = aprovação: só de in_review; qualquer pessoa autenticada (ou sistema)
         if from_status != Activity.Status.IN_REVIEW:
             raise WorkflowError("Approve only from In review.")
-        if not _approver_allowed(activity, actor):
-            raise WorkflowError("Only the next activity's assignee or staff can approve this.")
     elif to_status == Activity.Status.IN_PROGRESS and from_status == Activity.Status.IN_REVIEW:
         # rejeição da revisão: exige motivo
         if not comment:
