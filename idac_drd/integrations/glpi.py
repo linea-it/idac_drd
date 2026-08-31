@@ -57,7 +57,7 @@ class GlpiClient:
         """Create a ticket (type 1=incident, 2=request). Returns the ticket dict (``id``).
 
         The GLPI API requires the payload wrapped in an ``input`` key
-        (see https://helpdesk-dev.linea.org.br/apirest.php).
+        (see http://186.232.60.56/apirest.php).
         """
         payload = {"name": name, "content": content, "type": ticket_type}
         # Actor fields are "virtual" fields in the GLPI API: they need the
@@ -179,8 +179,9 @@ def _glpi_client() -> GlpiClient:
     missing = [name for name in _REQUIRED_CREDENTIALS if not getattr(settings, name)]
     if missing:
         raise ImproperlyConfigured(f"GLPI integration enabled (GLPI_ENABLED=True) but missing: {', '.join(missing)}.")
-    if not settings.GLPI_API_URL.lower().startswith("https://"):
-        raise ImproperlyConfigured("GLPI_API_URL must use https — credentials travel in plain text otherwise.")
+    scheme = settings.GLPI_API_URL.lower()
+    if not (scheme.startswith("https://") or scheme.startswith("http://")):
+        raise ImproperlyConfigured("GLPI_API_URL must be an http(s) URL.")
     return GlpiClient(
         settings.GLPI_API_URL,
         settings.GLPI_USER,
