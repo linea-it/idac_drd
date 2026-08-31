@@ -189,7 +189,7 @@ Cada item resolve uma parte diferente:
 
 - `FORCE_SCRIPT_NAME` informa ao Django que a aplicação ocupa `/drd` e faz `reverse()`, `{% url %}` e `request.META.SCRIPT_NAME` gerarem caminhos públicos prefixados;
 - `STATIC_URL` e `MEDIA_URL` geram links públicos como `/drd/static/...` e `/drd/media/...`;
-- `CSRF_COOKIE_PATH` e `SESSION_COOKIE_PATH` restringem os cookies à aplicação, evitando colisões com outros sistemas no mesmo domínio;
+- `CSRF_COOKIE_PATH` e `SESSION_COOKIE_PATH` restringem os cookies à aplicação; `CSRF_COOKIE_NAME` (`idac_drd_csrftoken`) e `SESSION_COOKIE_NAME` (`idac_drd_sessionid`) evitam colisão de nome com outros sistemas no mesmo domínio;
 - `WHITENOISE_STATIC_PREFIX` permanece `/static/` porque o nginx já removeu `/drd` quando a requisição chega ao WhiteNoise.
 
 O mesmo arquivo também configura:
