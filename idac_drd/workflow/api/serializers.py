@@ -72,7 +72,17 @@ class ReleaseStepSerializer(serializers.ModelSerializer):
         activities = list(obj.activities.all())
         total = len(activities)
         done = sum(1 for a in activities if a.status == Activity.Status.DONE)
-        return {"total": total, "done": done, "pct": round(100 * done / total, 1) if total else 0}
+        started = sum(
+            1
+            for a in activities
+            if a.status in (Activity.Status.IN_PROGRESS, Activity.Status.IN_REVIEW, Activity.Status.DONE)
+        )
+        return {
+            "total": total,
+            "done": done,
+            "started": started,
+            "pct": round(100 * done / total, 1) if total else 0,
+        }
 
 
 class ReleaseStepWriteSerializer(serializers.Serializer):

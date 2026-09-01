@@ -137,6 +137,24 @@ def test_api_transition_gate(release, user):
 
 
 @pytest.mark.django_db
+def test_step_progress_counts_started_before_done(release, user):
+    """Card do step: a primeira atividade em in_progress já conta como started."""
+    client = APIClient()
+    client.force_authenticate(user=user)
+    a1 = release.activities.get(key="step-1")
+    res = client.get(f"/api/releases/{release.slug}/")
+    step = next(s for s in res.json()["steps"] if s["key"] == "a")
+    assert step["progress"] == {"total": 2, "done": 0, "started": 0, "pct": 0}
+
+    client.patch(f"/api/activities/{a1.id}/", {"status": "in_progress"}, format="json")
+    res = client.get(f"/api/releases/{release.slug}/")
+    step = next(s for s in res.json()["steps"] if s["key"] == "a")
+    assert step["progress"]["started"] == 1
+    assert step["progress"]["done"] == 0
+    assert step["progress"]["pct"] == 0
+
+
+@pytest.mark.django_db
 def test_api_activity_mode(user):
     release = make_release("DP-Test", status="draft")
     client = APIClient()

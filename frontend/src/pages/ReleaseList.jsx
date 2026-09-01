@@ -35,10 +35,13 @@ import { useEffect, useState } from "react";
 import { api, appUrl } from "../api";
 import { releaseStatusLabel } from "../activityStatus";
 
-// estado de um step pelo percentual de atividades concluídas
-function stepStatus(pct) {
+// estado de um step: concluído só com 100% done; In Progress se alguma
+// atividade já saiu de todo/blocked (started), mesmo com 0% done.
+export function stepStatus(progress) {
+  const pct = progress?.pct || 0;
+  const started = progress?.started || 0;
   if (pct >= 100) return "completed";
-  if (pct > 0) return "in progress";
+  if (started > 0 || pct > 0) return "in progress";
   return "todo";
 }
 
@@ -103,7 +106,7 @@ function ReleaseCard({ rel, onDelete }) {
                 .filter((l) => l.progress?.total)
                 .map((step) => {
                   const pct = step.progress?.pct || 0;
-                  const status = stepStatus(pct);
+                  const status = stepStatus(step.progress);
                   const active = status !== "todo";
                   return (
                     <Box
