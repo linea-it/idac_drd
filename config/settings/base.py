@@ -242,6 +242,8 @@ SLACK_ENABLED = env.bool("SLACK_ENABLED", default=False)
 SLACK_BOT_TOKEN = env.str("SLACK_BOT_TOKEN", default="")
 SLACK_CHANNEL_ID = env.str("SLACK_CHANNEL_ID", default="")
 SLACK_DEV_USER_ID = env.str("SLACK_DEV_USER_ID", default="")
+# Horas em todo (pronta) sem in_progress até o lembrete Slack. 0 desliga.
+STALE_TODO_REMIND_HOURS = env.int("STALE_TODO_REMIND_HOURS", default=12)
 GLPI_ENABLED = env.bool("GLPI_ENABLED", default=False)
 GLPI_API_URL = env.str("GLPI_API_URL", default="")
 GLPI_USER = env.str("GLPI_USER", default="")

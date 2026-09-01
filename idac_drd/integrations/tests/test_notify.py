@@ -7,8 +7,11 @@ Threads por step: eventos de atividade viram replies na âncora do step
 configurado. Cliente Slack real substituído por fake — nada de HTTP.
 """
 
+from datetime import timedelta
+
 import pytest
 from django.test import override_settings
+from django.utils import timezone
 
 from idac_drd.integrations import notify
 from idac_drd.users.models import ExternalIdentity
@@ -674,3 +677,140 @@ def test_on_commit_notifies_complete_when_last_approved(monkeypatch):
         assert len(calls) == 1
     finally:
         release.delete()
+
+
+# ── lembrete 12h em todo sem in_progress ─────────────────────────────────────
+
+
+def test_stale_todo_copy_and_channel(release, slack):
+    _, _, a2 = release
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM", SITE_URL=SITE):
+        notify.notify_stale_todo(a2)
+
+    assert not slack.dms
+    assert ":alert:" in slack.channels[0][1]
+    assert "ainda está disponível e não foi iniciada" in slack.channels[0][1]
+    assert "<@U_BOB>" in slack.channels[0][1]
+    assert f"<{SITE}/releases/r1/|Abrir a atividade>" in slack.channels[0][1]
+
+
+def test_remind_stale_todos_after_12h(release, slack):
+    _, a1, _ = release
+    a1.ready_at = timezone.now() - timedelta(hours=12, minutes=1)
+    a1.save(update_fields=["ready_at"])
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM"):
+        assert notify.remind_stale_todos() == 1
+        assert notify.remind_stale_todos() == 0  # mesmo ciclo: não reenvia
+    a1.refresh_from_db()
+    assert a1.stale_todo_notified_at is not None
+    assert len(slack.channels) == 1
+    assert "ainda está disponível" in slack.channels[0][1]
+
+
+def test_remind_stale_todos_repeats_every_12h(release, slack):
+    _, a1, _ = release
+    a1.ready_at = timezone.now() - timedelta(hours=25)
+    a1.stale_todo_notified_at = timezone.now() - timedelta(hours=12, minutes=1)
+    a1.save(update_fields=["ready_at", "stale_todo_notified_at"])
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM"):
+        assert notify.remind_stale_todos() == 1
+        assert notify.remind_stale_todos() == 0
+    assert len(slack.channels) == 1
+
+
+def test_remind_stale_todos_skips_before_12h(release, slack):
+    _, a1, _ = release
+    a1.ready_at = timezone.now() - timedelta(hours=11)
+    a1.save(update_fields=["ready_at"])
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM"):
+        assert notify.remind_stale_todos() == 0
+    assert not slack.channels
+
+
+def test_remind_stale_todos_skips_in_progress(release, slack):
+    _, _, a2 = release
+    a2.status = Activity.Status.IN_PROGRESS
+    a2.ready_at = timezone.now() - timedelta(hours=13)
+    a2.save(update_fields=["status", "ready_at"])
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM"):
+        assert notify.remind_stale_todos() == 0
+    assert not slack.channels
+
+
+def test_remind_stale_todos_skips_unmet_prereqs(release, slack):
+    _, a1, a2 = release
+    a2.ready_at = timezone.now() - timedelta(hours=13)
+    a2.save(update_fields=["ready_at"])
+    assert a1.status != Activity.Status.DONE
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM"):
+        assert notify.remind_stale_todos() == 0
+    assert not slack.channels
+
+
+@pytest.mark.django_db(transaction=True)
+def test_ready_at_stamped_on_start_and_clears_stale_flag(monkeypatch):
+    monkeypatch.setattr("idac_drd.integrations.notify.notify_ready", lambda a: None)
+    release = DataRelease.objects.create(name="P", slug="p-ready-at", status=DataRelease.Status.DRAFT)
+    step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")
+    a1 = Activity.objects.create(
+        release=release,
+        step=step,
+        key="a1",
+        label="A1",
+        order=0,
+        stale_todo_notified_at=timezone.now(),
+    )
+    try:
+        start_release(release)
+        a1.refresh_from_db()
+        assert a1.ready_at is not None
+        assert a1.stale_todo_notified_at is None
+    finally:
+        release.delete()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_ready_at_stamped_on_add_without_assignee():
+    release = DataRelease.objects.create(name="P", slug="p-add-ready-at", status=DataRelease.Status.ACTIVE)
+    step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")
+    try:
+        activity = add_activity(release, label="Nova", step=step)
+        activity.refresh_from_db()
+        assert activity.ready_at is not None
+        assert activity.stale_todo_notified_at is None
+    finally:
+        release.delete()
+
+
+def test_remind_stale_todos_restores_claim_and_retries_after_failure(release, slack):
+    _, a1, _ = release
+    a1.ready_at = timezone.now() - timedelta(hours=13)
+    a1.save(update_fields=["ready_at"])
+    original = slack.post_to_channel
+    calls = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("slack down")
+        return original(*args, **kwargs)
+
+    slack.post_to_channel = fail_once
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM"):
+        assert notify.remind_stale_todos() == 0
+        a1.refresh_from_db()
+        assert a1.stale_todo_notified_at is None
+        assert notify.remind_stale_todos() == 1
+
+
+def test_remind_stale_todos_without_destination_does_not_count(release, slack):
+    _, a1, _ = release
+    a1.ready_at = timezone.now() - timedelta(hours=13)
+    a1.save(update_fields=["ready_at"])
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID=""):
+        assert notify.remind_stale_todos() == 0
+    a1.refresh_from_db()
+    assert a1.stale_todo_notified_at is None
+    assert not slack.channels
+    assert not slack.dms

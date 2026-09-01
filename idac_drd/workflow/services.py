@@ -40,12 +40,18 @@ def _sync_later(activity: Activity, *, actor=None) -> None:
     transaction.on_commit(lambda: _safe(sync_activity, activity, actor))
 
 
-def _notify_ready_later(activity: Activity) -> None:
-    """Agenda o aviso de "pronta para iniciar" (Slack ao assignee + canal).
+def _mark_ready(activity: Activity) -> None:
+    """Inicia o relógio quando a atividade fica disponível em TODO/ACTIVE."""
+    if activity.release.status != DataRelease.Status.ACTIVE or activity.status != Activity.Status.TODO:
+        return
+    now = timezone.now()
+    Activity.objects.filter(pk=activity.pk).update(ready_at=now, stale_todo_notified_at=None)
+    activity.ready_at = now
+    activity.stale_todo_notified_at = None
 
-    Disparado quando a atividade entra em todo com assignee: desbloqueio de
-    pré-requisitos, criação em release em execução e início da release.
-    """
+
+def _notify_ready_later(activity: Activity) -> None:
+    """Agenda o aviso de "pronta para iniciar" (Slack ao assignee + canal)."""
     from idac_drd.integrations.notify import notify_ready
 
     transaction.on_commit(lambda: _safe(notify_ready, activity))
@@ -193,6 +199,7 @@ def _unblock_ready_dependents(activity: Activity) -> None:
             dep.blocked_reason = ""
             dep.save(update_fields=["status", "blocked_reason", "updated_at"])
             _sync_later(dep)
+            _mark_ready(dep)
             _notify_ready_later(dep)
 
 
@@ -292,6 +299,7 @@ def transition_activity(
         _notify_rejection_later(activity, comment, actor)
     elif to_status == Activity.Status.TODO and from_status != Activity.Status.TODO:
         # desbloqueio manual (ex.: pré-requisitos já atendidos): é a vez do assignee
+        _mark_ready(activity)
         _notify_ready_later(activity)
     return activity
 
@@ -374,13 +382,11 @@ def add_activity(
         activity.depends_on.set({d.id for d in deps})
     _block_until_prerequisites(activity)
     _sync_later(activity)
-    if (
-        activity.release.status == DataRelease.Status.ACTIVE
-        and activity.assignee_id
-        and activity.status == Activity.Status.TODO
-    ):
-        # release em execução: a atividade nova nasce pronta — o assignee precisa saber
-        _notify_ready_later(activity)
+    if activity.release.status == DataRelease.Status.ACTIVE and activity.status == Activity.Status.TODO:
+        # release em execução: a atividade nova nasce pronta, mesmo sem assignee
+        _mark_ready(activity)
+        if activity.assignee_id:
+            _notify_ready_later(activity)
     return activity
 
 
@@ -518,8 +524,10 @@ def start_release(release: DataRelease) -> DataRelease:
     # ao iniciar a execução, todo activity vira issue/ticket nas integrações
     for activity in release.activities.all():
         _sync_later(activity)
-        if activity.assignee_id and activity.status == Activity.Status.TODO:
-            _notify_ready_later(activity)
+        if activity.status == Activity.Status.TODO:
+            _mark_ready(activity)
+            if activity.assignee_id:
+                _notify_ready_later(activity)
     return release
 
 

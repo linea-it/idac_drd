@@ -59,6 +59,7 @@ imprimir path relativo).
 |---|---|---|---|
 | início da release (`start_release`) | `notify_release_started` | canal, **top-level** | âncora por step (ver §4) |
 | atividade pronta para iniciar (`start_release`, `add_activity` em release ativa, desbloqueio manual `blocked`→`todo`, desbloqueio automático de pré-requisitos) | `notify_ready` | canal + menção ao assignee; DM fallback | `«@»esta atividade está pronta para você começar.` / `sua atividade está pronta para você começar.` — CTA "Abrir a atividade" |
+| todo parado (`remind_stale_todos`, ainda em `todo` 12h após `ready_at` / último ping) | `notify_stale_todo` | mesmo destino de `notify_ready` | `:alert: «@»esta atividade ainda está disponível e não foi iniciada.` / `:alert: sua atividade ainda está disponível e não foi iniciada.` — CTA "Abrir a atividade" |
 | enviada à revisão (`todo`→`in_review`) | `notify_review` | canal + menção aos **assignees das atividades dependentes**; DM fallback | `«@»a entrega espera revisão. Aprovar libera *«dependentes»*.` — CTA "Revisar entrega" |
 | rejeição (`in_review`→`in_progress` com motivo) | `notify_rejection` | canal + menção ao executor; DM fallback | `«@»a revisão devolveu a atividade.` + `Revisada por «reviewer».` + `*Motivo:* «comment»` + `Corrija e envie de novo.` — CTA "Corrigir e reenviar" |
 | release concluída (aprovação da última atividade) | `notify_release_complete` | canal, **top-level** | `*«release»* concluído. Todas as atividades foram aprovadas.` — CTA "Ver DPN" |
@@ -74,7 +75,13 @@ Detalhes por superfície:
 - **`notify_rejection`**: `comment` é obrigatório na rejeição e entra no corpo.
   Sem executor com `slack_id` → só o canal sem menção.
 - **`notify_ready`**: sem assignee com `slack_id` → só o canal; sem canal e sem
-  slack_id → pulado.
+  slack_id → pulado. Grava `Activity.ready_at` (relógio do lembrete).
+- **`notify_stale_todo`**: enquanto a atividade segue em `todo` numa release
+  ACTIVE com pré-requisitos ok, o aviso se **repete a cada 12h** (primeiro
+  ping 12h após `ready_at`; os seguintes 12h após `stale_todo_notified_at`).
+  Voltar a `todo` zera o relógio. Job: `python manage.py remind_stale_todos`
+  (serviço `remind` no compose de produção, a cada 5 min).
+  `STALE_TODO_REMIND_HOURS` (default 12; `0` desliga).
 - **Copy por superfície**: canal em 3ª pessoa com `<@slack_id>`; DM em 2ª
   pessoa **sem menção** (já é privada).
 - **Não notifica**: a entrada em `in_progress` em si (o aviso "pronta" já saiu
