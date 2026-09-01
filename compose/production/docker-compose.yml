@@ -17,3 +17,18 @@ services:
     ports:
       - "8193:8000"
     restart: unless-stopped
+
+  # Lembrete Slack: todo disponível há 12h sem in_progress. Poll a cada 5 min;
+  # o critério de 12h está em ready_at, não neste intervalo.
+  remind:
+    image: linea/idac_drd:sha-${WEB_IMAGE_TAG:?WEB_IMAGE_TAG deve ser definido no .env}
+    command: >
+      bash -c "while true; do python manage.py remind_stale_todos; sleep 300; done"
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_READ_DOT_ENV_FILE: "False"
+    volumes:
+      - ./config/certificates:/app/config/certificates:ro
+    restart: unless-stopped

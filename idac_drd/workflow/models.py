@@ -110,6 +110,11 @@ class Activity(models.Model):
     resources = models.JSONField(default=list, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    # Quando a atividade ficou disponível (todo com pré-requisitos ok). Relógio
+    # do lembrete de 12h; preenchido pelo fluxo de notify_ready, não pela API.
+    ready_at = models.DateTimeField(null=True, blank=True)
+    # Último lembrete de todo parado; None = ainda não. Resetado se voltar a todo.
+    stale_todo_notified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

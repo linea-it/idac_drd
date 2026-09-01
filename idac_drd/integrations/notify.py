@@ -18,8 +18,11 @@ Inerte a menos que SLACK_ENABLED. Falhas só logam, nunca levantam.
 """
 
 import logging
+from datetime import timedelta
 
 from django.conf import settings
+from django.db.models import Q
+from django.utils import timezone
 
 from idac_drd.integrations.slack import _slack_client
 from idac_drd.workflow.models import Activity, DataRelease, ReleaseStep
@@ -136,6 +139,86 @@ def notify_ready(activity: Activity) -> None:
         _post_or_dm(channel_text, dm_text, recipient, thread_ts)
     except Exception:
         logger.warning("Slack ready notification failed for activity %s", activity.id, exc_info=True)
+
+
+def notify_stale_todo(activity: Activity) -> bool:
+    """Lembrete: a atividade segue em todo sem ter sido iniciada.
+
+    Mesmos gates e destino de ``notify_ready``. Copy distinta para não parecer
+    o aviso inicial de novo. Repete a cada STALE_TODO_REMIND_HOURS enquanto
+    permanecer em todo.
+    """
+    if not settings.SLACK_ENABLED:
+        return False
+    if activity.release.status != DataRelease.Status.ACTIVE:
+        return False
+
+    assignee = activity.assignee
+    recipient = assignee.slack_id if assignee else None
+    if not settings.SLACK_CHANNEL_ID and not recipient:
+        return False
+
+    head = _headline(activity)
+    link = _release_link(activity.release, "Abrir a atividade")
+    channel_text = _join(
+        head, f":alert: {_mention(recipient)}esta atividade ainda está disponível e não foi iniciada.", link
+    )
+    dm_text = _join(head, ":alert: sua atividade ainda está disponível e não foi iniciada.", link)
+    try:
+        thread_ts = _ensure_step_thread(activity.step) if settings.SLACK_CHANNEL_ID else None
+        _post_or_dm(channel_text, dm_text, recipient, thread_ts)
+        return True
+    except Exception:
+        logger.warning("Slack stale-todo notification failed for activity %s", activity.id, exc_info=True)
+        return False
+
+
+def remind_stale_todos() -> int:
+    """Envia o lembrete para TODOs prontos há pelo menos STALE_TODO_REMIND_HOURS.
+
+    Só atividades de release ACTIVE, ainda em todo, com ``ready_at`` vencido.
+    Repete a cada intervalo enquanto continuar em todo: o próximo ping é
+    ``stale_todo_notified_at`` + intervalo (ou ``ready_at`` se nunca avisou).
+    Pré-requisitos pendentes são ignorados. O update atômico evita duplicata
+    se o comando rodar em paralelo. Retorna quantos avisos foram enviados.
+    """
+    hours = getattr(settings, "STALE_TODO_REMIND_HOURS", 12)
+    if hours <= 0 or not settings.SLACK_ENABLED:
+        return 0
+
+    now = timezone.now()
+    cutoff = now - timedelta(hours=hours)
+    due = Q(stale_todo_notified_at__isnull=True) | Q(stale_todo_notified_at__lte=cutoff)
+    candidates = (
+        Activity.objects.filter(
+            status=Activity.Status.TODO,
+            release__status=DataRelease.Status.ACTIVE,
+            ready_at__isnull=False,
+            ready_at__lte=cutoff,
+        )
+        .filter(due)
+        .select_related("release", "step", "assignee")
+        .order_by("id")
+    )
+
+    sent = 0
+    for activity in candidates:
+        if not activity.prerequisites_met():
+            continue
+        claimed = (
+            Activity.objects.filter(pk=activity.pk, status=Activity.Status.TODO)
+            .filter(due)
+            .update(stale_todo_notified_at=now)
+        )
+        if not claimed:
+            continue
+        if notify_stale_todo(activity):
+            sent += 1
+        else:
+            Activity.objects.filter(pk=activity.pk, stale_todo_notified_at=now).update(
+                stale_todo_notified_at=activity.stale_todo_notified_at
+            )
+    return sent
 
 
 def notify_review(activity: Activity) -> None:
