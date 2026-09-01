@@ -41,7 +41,12 @@ def test_send_dm_success(mock_post, fake_response):
     assert calls[1].args[0] == "https://slack.com/api/conversations.open"
     assert calls[1].kwargs["data"] == {"users": "U123"}
     assert calls[2].args[0] == "https://slack.com/api/chat.postMessage"
-    assert calls[2].kwargs["data"] == {"channel": "C456", "text": "Hello <@U123>"}
+    assert calls[2].kwargs["data"] == {
+        "channel": "C456",
+        "text": "Hello <@U123>",
+        "unfurl_links": "false",
+        "unfurl_media": "false",
+    }
     assert all(call.kwargs["headers"] == SLACK_HEADERS for call in calls)
     assert result["ts"] == "1700000000.000001"
 
@@ -97,7 +102,7 @@ def test_post_message_to_channel(mock_post, fake_response):
     mock_post.assert_called_once_with(
         "https://slack.com/api/chat.postMessage",
         headers=SLACK_HEADERS,
-        data={"channel": "C1", "text": "hi"},
+        data={"channel": "C1", "text": "hi", "unfurl_links": "false", "unfurl_media": "false"},
         timeout=30,
     )
 
@@ -110,7 +115,13 @@ def test_post_message_to_thread(mock_post, fake_response):
     mock_post.assert_called_once_with(
         "https://slack.com/api/chat.postMessage",
         headers=SLACK_HEADERS,
-        data={"channel": "C1", "text": "hi", "thread_ts": "1700000000.000001"},
+        data={
+            "channel": "C1",
+            "text": "hi",
+            "unfurl_links": "false",
+            "unfurl_media": "false",
+            "thread_ts": "1700000000.000001",
+        },
         timeout=30,
     )
 
@@ -131,7 +142,12 @@ def test_post_message_falls_back_to_dev_user_dm(mock_post, fake_response):
     assert calls[0].args[0] == "https://slack.com/api/conversations.open"
     assert calls[0].kwargs["data"] == {"users": "UARSZNZC7"}
     assert calls[1].args[0] == "https://slack.com/api/chat.postMessage"
-    assert calls[1].kwargs["data"] == {"channel": "D1", "text": "hi"}
+    assert calls[1].kwargs["data"] == {
+        "channel": "D1",
+        "text": "hi",
+        "unfurl_links": "false",
+        "unfurl_media": "false",
+    }
 
 
 @mock.patch("requests.post")

@@ -16,6 +16,8 @@ class SlackAPIError(IntegrationAPIError):
 
 class SlackClient:
     BASE_URL = "https://slack.com/api"
+    # form-urlencoded: Slack espera "false", não o bool Python.
+    _NO_UNFURL = {"unfurl_links": "false", "unfurl_media": "false"}
 
     def __init__(self, bot_token: str, timeout: int = 30):
         self.bot_token = bot_token
@@ -65,7 +67,10 @@ class SlackClient:
         """Send a DM to a Slack user id (opens the DM if needed)."""
         channel = self._post("conversations.open", {"users": user_id})
         # as_user foi removido da API (deprecated_argument) — bot posta como bot.
-        return self._post("chat.postMessage", {"channel": channel["channel"]["id"], "text": text})
+        return self._post(
+            "chat.postMessage",
+            {"channel": channel["channel"]["id"], "text": text, **self._NO_UNFURL},
+        )
 
     def post_to_channel(self, channel_id: str, text: str, thread_ts: str | None = None) -> dict:
         """Post a message to a channel the bot has joined.
@@ -73,7 +78,7 @@ class SlackClient:
         ``thread_ts`` (timestamp de uma mensagem do mesmo canal) posta a
         mensagem como reply naquela thread.
         """
-        payload = {"channel": channel_id, "text": text}
+        payload = {"channel": channel_id, "text": text, **self._NO_UNFURL}
         if thread_ts:
             payload["thread_ts"] = thread_ts
         return self._post("chat.postMessage", payload)
