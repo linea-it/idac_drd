@@ -2,7 +2,7 @@
 // e cria o draft via POST /api/releases/import/.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { vi } from "vitest";
-import ReleaseList from "./ReleaseList";
+import ReleaseList, { stepStatus } from "./ReleaseList";
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() }));
 vi.mock("../api", () => ({ api: apiMock, appUrl: (path) => path }));
@@ -84,6 +84,40 @@ test("New draft só aparece na página Drafts", async () => {
   render(<ReleaseList page="releases" />);
   await screen.findByRole("heading", { name: "Releases" });
   expect(screen.queryByRole("button", { name: "New draft" })).not.toBeInTheDocument();
+});
+
+test("stepStatus: primeira atividade em progresso vira In Progress com 0% done", () => {
+  expect(stepStatus({ total: 2, done: 0, started: 0, pct: 0 })).toBe("todo");
+  expect(stepStatus({ total: 2, done: 0, started: 1, pct: 0 })).toBe("in progress");
+  expect(stepStatus({ total: 2, done: 1, started: 1, pct: 50 })).toBe("in progress");
+  expect(stepStatus({ total: 2, done: 2, started: 2, pct: 100 })).toBe("completed");
+});
+
+test("card do step mostra In Progress quando a primeira atividade inicia", async () => {
+  apiMock.get.mockImplementation((path) => {
+    if (path === "/api/releases/")
+      return Promise.resolve([
+        {
+          id: 1,
+          name: "DR1",
+          slug: "dr1",
+          status: "active",
+          progress: { done: 0, total: 2, pct: 0 },
+          steps: [
+            {
+              id: 10,
+              label: "Ingest",
+              color: "#000099",
+              progress: { total: 2, done: 0, started: 1, pct: 0 },
+            },
+          ],
+        },
+      ]);
+    return Promise.reject(new Error(`unexpected: ${path}`));
+  });
+  render(<ReleaseList page="releases" />);
+  expect(await screen.findByText("Ingest")).toBeInTheDocument();
+  expect(screen.getByText("In Progress")).toBeInTheDocument();
 });
 
 test("página Releases agrupa em execução e concluídas", async () => {

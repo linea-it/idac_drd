@@ -30,5 +30,5 @@ services:
       DJANGO_SETTINGS_MODULE: config.settings.production
       DJANGO_READ_DOT_ENV_FILE: "False"
     volumes:
-      - ./config/certificates:/app/config/certificates:ro
+      - ./certificates:/app/config/certificates:ro
     restart: unless-stopped
