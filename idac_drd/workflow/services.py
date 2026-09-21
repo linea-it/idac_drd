@@ -76,6 +76,14 @@ def _notify_rejection_later(activity: Activity, comment: str, reviewer=None) -> 
     transaction.on_commit(lambda: _safe(notify_rejection, activity, comment, reviewer_name))
 
 
+def _notify_blocked_later(activity: Activity, reason: str, actor=None) -> None:
+    """Agenda o aviso de bloqueio manual (Slack canal/DM) para depois do commit."""
+    from idac_drd.integrations.notify import notify_blocked
+
+    actor_name = actor.username if actor else ""
+    transaction.on_commit(lambda: _safe(notify_blocked, activity, reason, actor_name))
+
+
 def _notify_started_later(release: DataRelease) -> None:
     """Agenda o aviso de início de release (Slack no canal) para depois do commit."""
     from idac_drd.integrations.notify import notify_release_started
@@ -297,6 +305,11 @@ def transition_activity(
     elif to_status == Activity.Status.IN_PROGRESS and from_status == Activity.Status.IN_REVIEW:
         # rejeição da revisão: avisa o executor para corrigir
         _notify_rejection_later(activity, comment, actor)
+    elif to_status == Activity.Status.BLOCKED:
+        # bloqueio manual (auto-prereq usa _block_until_prerequisites, não esta via)
+        reason = (activity.blocked_reason or comment or "").strip()
+        if reason and not reason.startswith(_PREREQ_BLOCK_PREFIXES):
+            _notify_blocked_later(activity, reason, actor)
     elif to_status == Activity.Status.TODO and from_status != Activity.Status.TODO:
         # desbloqueio manual (ex.: pré-requisitos já atendidos): é a vez do assignee
         _mark_ready(activity)
