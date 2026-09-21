@@ -214,7 +214,8 @@ function DagInner({ steps, activities, onSelect, selectedId, flash, matchedIds, 
       </Typography>
       <Box
         sx={{
-          height: "calc(100vh - 230px)",
+          // mais área vertical → fit-height inicial com zoom maior (mais steps visíveis)
+          height: "calc(100vh - 140px)",
           border: 1,
           borderColor: "divider",
           borderRadius: 1,
