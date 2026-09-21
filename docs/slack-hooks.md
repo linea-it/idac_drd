@@ -79,7 +79,9 @@ Detalhes por superfície:
 - **`notify_stale_todo`**: enquanto a atividade segue em `todo` numa release
   ACTIVE com pré-requisitos ok, o aviso se **repete a cada 12h** (primeiro
   ping 12h após `ready_at`; os seguintes 12h após `stale_todo_notified_at`).
-  Voltar a `todo` zera o relógio. Job: `python manage.py remind_stale_todos`
+  **Não envia** se o assignee já tem **qualquer** outra atividade em
+  `in_progress` (ocupado — issue #30 / FTE). Voltar a `todo` zera o relógio.
+  Job: `python manage.py remind_stale_todos`
   (serviço `remind` no compose de produção, a cada 5 min).
   `STALE_TODO_REMIND_HOURS` (default 12; `0` desliga).
 - **Copy por superfície**: canal em 3ª pessoa com `<@slack_id>`; DM em 2ª

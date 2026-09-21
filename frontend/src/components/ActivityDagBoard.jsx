@@ -28,6 +28,10 @@ export default function ActivityDagBoard({
   flash = null,
   matchedIds = null,
   filterActive = false,
+  onPlay,
+  onPause,
+  isSuperuser = false,
+  userEmail = "",
 }) {
   return (
     <ReactFlowProvider>
@@ -39,12 +43,28 @@ export default function ActivityDagBoard({
         flash={flash}
         matchedIds={matchedIds}
         filterActive={filterActive}
+        onPlay={onPlay}
+        onPause={onPause}
+        isSuperuser={isSuperuser}
+        userEmail={userEmail}
       />
     </ReactFlowProvider>
   );
 }
 
-function DagInner({ steps, activities, onSelect, selectedId, flash, matchedIds, filterActive }) {
+function DagInner({
+  steps,
+  activities,
+  onSelect,
+  selectedId,
+  flash,
+  matchedIds,
+  filterActive,
+  onPlay,
+  onPause,
+  isSuperuser,
+  userEmail,
+}) {
   const theme = useTheme();
   const { fitView, setViewport, getViewport } = useReactFlow();
   // dimensões do canvas vêm do store (useReactFlow não as expõe);
@@ -169,10 +189,27 @@ function DagInner({ steps, activities, onSelect, selectedId, flash, matchedIds, 
             revealed,
             dim,
             flash: flashActive && flash?.id === n.id,
+            onPlay,
+            onPause,
+            isSuperuser,
+            userEmail,
           },
         };
       }),
-    [nodes, revealed, hoverId, neighbors, flashActive, flash, filterActive, matchedIds],
+    [
+      nodes,
+      revealed,
+      hoverId,
+      neighbors,
+      flashActive,
+      flash,
+      filterActive,
+      matchedIds,
+      onPlay,
+      onPause,
+      isSuperuser,
+      userEmail,
+    ],
   );
 
   // hover: arestas conectadas mais grossas, o resto esmaece; senão, o filtro

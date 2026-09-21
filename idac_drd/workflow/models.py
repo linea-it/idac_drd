@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.utils.text import slugify
 
 
@@ -185,3 +186,58 @@ class ActivityTextRevision(models.Model):
 
     class Meta:
         ordering = ["created_at", "id"]
+
+
+class ActivityWorkSession(models.Model):
+    """Intervalo de esforço (play→pause) de um assignee numa activity.
+
+    Fonte da verdade para FTE/effort. Status da activity continua sendo workflow;
+    ``ended_at IS NULL`` = sessão aberta (playing). No máximo uma sessão aberta
+    por assignee (global) e por activity.
+    """
+
+    class EndReason(models.TextChoices):
+        PAUSE = "pause", "Pause"
+        PLAY_SWITCH = "play_switch", "Switched to another activity"
+        REVIEW = "review", "Sent to review"
+        BLOCKED = "blocked", "Blocked"
+        DONE = "done", "Done"
+        REASSIGN = "reassign", "Assignee changed"
+        ADMIN = "admin", "Admin"
+
+    activity = models.ForeignKey(Activity, related_name="work_sessions", on_delete=models.CASCADE)
+    assignee = models.ForeignKey(
+        "users.ExternalIdentity",
+        on_delete=models.CASCADE,
+        related_name="work_sessions",
+    )
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    end_reason = models.CharField(max_length=20, choices=EndReason.choices, blank=True, default="")
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="activity_work_sessions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["started_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["assignee"],
+                condition=Q(ended_at__isnull=True),
+                name="uniq_open_work_session_per_assignee",
+            ),
+            models.UniqueConstraint(
+                fields=["activity"],
+                condition=Q(ended_at__isnull=True),
+                name="uniq_open_work_session_per_activity",
+            ),
+        ]
+
+    def __str__(self):
+        state = "open" if self.ended_at is None else "closed"
+        return f"{self.activity_id}:{self.assignee_id}:{state}"

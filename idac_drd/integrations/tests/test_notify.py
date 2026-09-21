@@ -884,6 +884,30 @@ def test_remind_stale_todos_skips_in_progress(release, slack):
     assert not slack.channels
 
 
+def test_remind_stale_todos_skips_when_assignee_busy(release, slack):
+    """#30: não lembrar TODO se o assignee já tem outra atividade In Progress."""
+    release_obj, a1, a2 = release
+    bob = a2.assignee
+    a1.assignee = bob
+    a1.status = Activity.Status.IN_PROGRESS
+    a1.save(update_fields=["assignee", "status"])
+    a3 = Activity.objects.create(
+        release=release_obj,
+        step=a1.step,
+        key="a3",
+        label="A3",
+        order=2,
+        assignee=bob,
+        status=Activity.Status.TODO,
+        ready_at=timezone.now() - timedelta(hours=13),
+    )
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM"):
+        assert notify.remind_stale_todos() == 0
+    assert not slack.channels
+    a3.refresh_from_db()
+    assert a3.stale_todo_notified_at is None
+
+
 def test_remind_stale_todos_skips_unmet_prereqs(release, slack):
     _, a1, a2 = release
     a2.ready_at = timezone.now() - timedelta(hours=13)

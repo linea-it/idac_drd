@@ -14,18 +14,25 @@ O backend Django concentra os modelos, as regras de transição das releases, a 
 Os apps principais são:
 
 - `idac_drd/users/`: usuários de login e `ExternalIdentity`, que relaciona email a GitHub, Slack e GLPI;
-- `idac_drd/workflow/`: releases, steps, atividades, regras de negócio, páginas e API;
+- `idac_drd/workflow/`: releases, steps, atividades, sessões play/pause (effort), regras de negócio, páginas e API;
 - `idac_drd/integrations/`: clientes e sincronização com GitHub, GLPI e Slack.
 
 As integrações são executadas depois do commit da transação e em modo best-effort. Uma falha externa é registrada no log, mas não desfaz a operação realizada no dashboard.
+
+Documentação de comportamento:
+
+- [docs/work-sessions.md](docs/work-sessions.md) — play/pause, effort vs cycle, permissões;
+- [docs/slack-hooks.md](docs/slack-hooks.md) — notificações Slack;
+- [docs/glpi-hooks.md](docs/glpi-hooks.md) — sync de tickets GLPI.
 
 ## Funcionalidades
 
 - Drafts, releases e arquivo em páginas separadas;
 - board de steps com status, responsável e bloqueios;
+- play/pause por atividade (uma sessão ativa por assignee) para medir effort/FTE — ver [docs/work-sessions.md](docs/work-sessions.md);
 - gates de dependência entre atividades;
 - exportação e importação de drafts em JSON;
-- log de transições e relatório de gargalos;
+- log de transições e relatório com cycle time e effort;
 - arquivo de releases somente para leitura;
 - criação opcional de issues GitHub, tickets GLPI e notificações Slack.
 
@@ -305,7 +312,7 @@ Com SAML habilitado, usuários desconhecidos são criados no primeiro login e se
 
 Configure `AUTH_SAML2_ENABLED`, `SITE_URL`, `LINEA_LOGIN_URL`, `RUBIN_LOGIN_URL` e `SAML_SP_NAME`. Monte os certificados em `/app/config/certificates` como `private.key` e `public.cert`. Consulte `config/certificates/README.md` e registre os metadados do SP junto ao serviço de identidade do LIneA.
 
-`User` representa uma conta que entra na aplicação. `ExternalIdentity` representa um responsável do workflow e seus IDs externos. Eles são cadastros distintos.
+`User` representa uma conta que entra na aplicação. `ExternalIdentity` representa um responsável do workflow e seus IDs externos. Eles são cadastros distintos. O play/pause casa o login com o assignee pelo **email** (`User.email` = `ExternalIdentity.email`); superusuário também pode controlar o timer. Detalhes em [docs/work-sessions.md](docs/work-sessions.md).
 
 ## Integrações
 

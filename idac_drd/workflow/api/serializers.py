@@ -126,6 +126,9 @@ class ActivitySerializer(serializers.ModelSerializer):
     prerequisites_met = serializers.SerializerMethodField()
     locked = serializers.SerializerMethodField()
     duration_seconds = serializers.SerializerMethodField()
+    effort_seconds = serializers.SerializerMethodField()
+    is_playing = serializers.SerializerMethodField()
+    playing_since = serializers.SerializerMethodField()
 
     class Meta:
         model = Activity
@@ -160,6 +163,9 @@ class ActivitySerializer(serializers.ModelSerializer):
             "started_at",
             "completed_at",
             "duration_seconds",
+            "effort_seconds",
+            "is_playing",
+            "playing_since",
             "created_at",
             "updated_at",
         )
@@ -187,8 +193,31 @@ class ActivitySerializer(serializers.ModelSerializer):
         )
 
     def get_duration_seconds(self, obj):
+        # lead time (calendário): primeira vez em progresso → conclusão
         if obj.started_at and obj.completed_at:
             return (obj.completed_at - obj.started_at).total_seconds()
+        return None
+
+    def _sessions(self, obj):
+        cache = getattr(obj, "_prefetched_objects_cache", {})
+        if "work_sessions" in cache:
+            return cache["work_sessions"]
+        return list(obj.work_sessions.all())
+
+    def get_effort_seconds(self, obj):
+        from django.utils import timezone
+
+        from idac_drd.workflow.services import activity_effort_seconds
+
+        return activity_effort_seconds(obj, now=timezone.now())
+
+    def get_is_playing(self, obj):
+        return any(s.ended_at is None for s in self._sessions(obj))
+
+    def get_playing_since(self, obj):
+        for session in self._sessions(obj):
+            if session.ended_at is None:
+                return session.started_at
         return None
 
     def validate_resources(self, value):

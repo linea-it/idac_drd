@@ -2,6 +2,8 @@ import AddIcon from "@mui/icons-material/Add";
 import ControlPointDuplicateIcon from "@mui/icons-material/ControlPointDuplicate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import PauseIcon from "@mui/icons-material/Pause";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import {
   Accordion,
   AccordionDetails,
@@ -30,6 +32,12 @@ import {
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { displayStatus, isPrereqAutoBlock, statusLabel } from "../activityStatus";
+import {
+  canControlTimer,
+  formatEffort,
+  timerGateMessage,
+  timerGateReason,
+} from "../timerUi";
 import DependsOnField from "./DependsOnField";
 
 // estados operacionais que o executor escolhe; a entrega (review) e a
@@ -60,6 +68,10 @@ export default function ActivityDrawer({
   onDelete,
   onDuplicate,
   onMove,
+  onPlay,
+  onPause,
+  isSuperuser = false,
+  userEmail = "",
 }) {
   const [status, setStatus] = useState("todo");
   const [mode, setMode] = useState("manual");
@@ -146,6 +158,8 @@ export default function ActivityDrawer({
 
   // estrutura só se edita em draft ou no modo de edição da execução (canEdit)
   const structDisabled = readonly || !canEdit;
+  const canTimer = canControlTimer(activity, { isSuperuser, userEmail });
+  const gateMsg = timerGateMessage(timerGateReason(activity, { isSuperuser, userEmail }));
   const objectiveLines = objectives
     .split("\n")
     .map((line) => line.trim())
@@ -294,6 +308,79 @@ export default function ActivityDrawer({
                     )}
                   </Select>
                 </FormControl>
+                {!readonly &&
+                  !draft &&
+                  canTimer &&
+                  (status === "todo" || status === "in_progress") &&
+                  activity.prerequisites_met !== false &&
+                  displayStatus(activity) !== "waiting" && (
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      {activity.is_playing ? (
+                        <Button
+                          variant="outlined"
+                          startIcon={<PauseIcon />}
+                          onClick={async () => {
+                            setError("");
+                            setSaving(true);
+                            try {
+                              await onPause?.(activity);
+                            } catch (err) {
+                              setError(err.message);
+                            } finally {
+                              setSaving(false);
+                            }
+                          }}
+                          disabled={saving || !onPause}
+                        >
+                          Pause
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="contained"
+                          startIcon={<PlayArrowIcon />}
+                          onClick={async () => {
+                            setError("");
+                            setSaving(true);
+                            try {
+                              await onPlay?.(activity);
+                            } catch (err) {
+                              setError(err.message);
+                            } finally {
+                              setSaving(false);
+                            }
+                          }}
+                          disabled={saving || !onPlay || !activity.assignee}
+                        >
+                          Play
+                        </Button>
+                      )}
+                      {formatEffort(activity.effort_seconds) && (
+                        <Typography variant="body2" color="text.secondary">
+                          {activity.is_playing ? "In Progress · " : "Effort · "}
+                          {formatEffort(activity.effort_seconds)}
+                        </Typography>
+                      )}
+                    </Stack>
+                  )}
+                {!readonly &&
+                  !draft &&
+                  !canTimer &&
+                  (status === "todo" || status === "in_progress") &&
+                  displayStatus(activity) !== "waiting" && (
+                    <Stack spacing={0.5}>
+                      {gateMsg && (
+                        <Typography variant="caption" color="text.secondary">
+                          {gateMsg}
+                        </Typography>
+                      )}
+                      {formatEffort(activity.effort_seconds) && (
+                        <Typography variant="body2" color="text.secondary">
+                          {activity.is_playing ? "In Progress · " : "Effort · "}
+                          {formatEffort(activity.effort_seconds)}
+                        </Typography>
+                      )}
+                    </Stack>
+                  )}
                 {!readonly && !draft && status === "in_progress" && activity.status === "in_progress" && (
                   <Button
                     variant="contained"

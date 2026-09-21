@@ -205,6 +205,15 @@ def remind_stale_todos() -> int:
     for activity in candidates:
         if not activity.prerequisites_met():
             continue
+        # #30: não lembrar quem já está com alguma atividade em execução
+        if (
+            activity.assignee_id
+            and Activity.objects.filter(
+                assignee_id=activity.assignee_id,
+                status=Activity.Status.IN_PROGRESS,
+            ).exists()
+        ):
+            continue
         claimed = (
             Activity.objects.filter(pk=activity.pk, status=Activity.Status.TODO)
             .filter(due)

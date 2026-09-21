@@ -13,12 +13,21 @@ if (rootEl) {
   const page = rootEl.dataset.page || "releases";
   const releaseSlug = rootEl.dataset.releaseSlug || "";
   const isStaff = rootEl.dataset.isStaff === "true";
+  const isSuperuser = rootEl.dataset.isSuperuser === "true";
+  const userEmail = rootEl.dataset.userEmail || "";
 
   let content = null;
   if (!authenticated) {
     content = <AuthGate loginUrl={loginUrl} />;
   } else if (page === "board") {
-    content = <ReleaseBoard releaseSlug={releaseSlug} isStaff={isStaff} />;
+    content = (
+      <ReleaseBoard
+        releaseSlug={releaseSlug}
+        isStaff={isStaff}
+        isSuperuser={isSuperuser}
+        userEmail={userEmail}
+      />
+    );
   } else {
     content = <ReleaseList page={page} />;
   }

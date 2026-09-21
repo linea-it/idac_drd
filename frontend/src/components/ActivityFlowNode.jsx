@@ -1,17 +1,43 @@
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import PauseIcon from "@mui/icons-material/Pause";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Handle, Position } from "@xyflow/react";
-import { Box, Chip, Stack, Typography } from "@mui/material";
+import { Box, Chip, IconButton, Stack, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { displayStatus, isStuck, statusLabel } from "../activityStatus";
 import { statusColors } from "../statusColors";
+import { canControlTimer, workflowChip } from "../timerUi";
 import ModeChip from "./ModeChip";
 import ResourceLinks from "./ResourceLinks";
 
+function timerEligible(activity) {
+  const status = activity.status;
+  if (status !== "todo" && status !== "in_progress") return false;
+  if (displayStatus(activity) === "waiting") return false;
+  if (status === "todo" && activity.prerequisites_met === false) return false;
+  return true;
+}
+
 export default function ActivityFlowNode({ data }) {
   const theme = useTheme();
-  const { activity, level, revealed, dim, flash } = data;
+  const {
+    activity,
+    level,
+    revealed,
+    dim,
+    flash,
+    onPlay,
+    onPause,
+    isSuperuser = false,
+    userEmail = "",
+  } = data;
   const stuck = isStuck(activity);
   const status = displayStatus(activity);
+  const auth = { isSuperuser, userEmail };
+  const showTimer =
+    timerEligible(activity) && canControlTimer(activity, auth) && (onPlay || onPause);
+  const chip = workflowChip(activity, displayStatus, statusLabel, statusColors);
+
   const borderColor =
     status === "blocked"
       ? "warning.main"
@@ -20,7 +46,6 @@ export default function ActivityFlowNode({ data }) {
         : activity.status === "todo" && activity.prerequisites_met
           ? "primary.main"
           : "divider";
-  // cor do anel de "recém-editado": a cor do status efetivo atual
   const flashColor =
     status === "blocked"
       ? theme.palette.warning.main
@@ -31,6 +56,52 @@ export default function ActivityFlowNode({ data }) {
           : status === "done"
             ? theme.palette.success.main
             : theme.palette.primary.main;
+
+  // mesmo slot do cadeado: stuck > botão play/pause > ícone só leitura
+  let statusIcon = null;
+  if (stuck) {
+    statusIcon = (
+      <LockOutlinedIcon
+        sx={{ fontSize: "0.875rem", color: "text.primary", flexShrink: 0 }}
+        titleAccess="Stuck"
+      />
+    );
+  } else if (showTimer) {
+    statusIcon = (
+      <IconButton
+        size="small"
+        color={activity.is_playing ? "success" : "primary"}
+        title={activity.is_playing ? "Pause" : "Play"}
+        aria-label={activity.is_playing ? "Pause" : "Play"}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (activity.is_playing) onPause?.(activity);
+          else onPlay?.(activity);
+        }}
+        sx={{ p: 0.25 }}
+      >
+        {activity.is_playing ? (
+          <PauseIcon sx={{ fontSize: "0.875rem" }} />
+        ) : (
+          <PlayArrowIcon sx={{ fontSize: "0.875rem" }} />
+        )}
+      </IconButton>
+    );
+  } else if (activity.is_playing) {
+    statusIcon = (
+      <PlayArrowIcon
+        sx={{ fontSize: "0.875rem", color: "success.main", flexShrink: 0 }}
+        titleAccess="In Progress"
+      />
+    );
+  } else if (activity.status === "in_progress") {
+    statusIcon = (
+      <PauseIcon
+        sx={{ fontSize: "0.875rem", color: "text.secondary", flexShrink: 0 }}
+        titleAccess="Paused"
+      />
+    );
+  }
 
   return (
     <>
@@ -43,12 +114,10 @@ export default function ActivityFlowNode({ data }) {
             border: 1,
             borderColor,
             borderRadius: 1,
-            // a faixa desse step a que a activity pertence (mesma cor do rótulo da faixa)
             borderLeft: `4px solid ${data.stepColor || "#000099"}`,
             boxShadow: flash ? `0 0 0 3px ${flashColor}` : "none",
             px: 1.5,
             py: 1,
-            // só filtro/hover esmaece — waiting/blocked ficam opacos
             opacity: dim ? 0.35 : 1,
             transition: "opacity 150ms ease, border-color 300ms ease, box-shadow 600ms ease",
           }}
@@ -68,19 +137,14 @@ export default function ActivityFlowNode({ data }) {
             >
               {activity.label}
             </Typography>
-            {stuck && (
-              <LockOutlinedIcon
-                sx={{ fontSize: "0.875rem", color: "text.primary", flexShrink: 0 }}
-                titleAccess="Stuck"
-              />
-            )}
+            {statusIcon}
             <ResourceLinks resources={activity.resources} sx={{ p: 0.25 }} />
           </Stack>
           <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap alignItems="center">
             <Chip
               size="small"
-              label={statusLabel(status)}
-              color={statusColors[status]}
+              label={chip.label}
+              color={chip.color}
               sx={{ height: 20, "& .MuiChip-label": { fontSize: 11, px: 0.8 } }}
             />
             <ModeChip mode={activity.mode} size="small" sx={{ height: 20 }} />

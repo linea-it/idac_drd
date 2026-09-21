@@ -7,13 +7,142 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from idac_drd.users.models import ExternalIdentity
-from idac_drd.workflow.models import Activity, ActivityTransition, DataRelease, ReleaseStep
+from idac_drd.workflow.models import Activity, ActivityTransition, ActivityWorkSession, DataRelease, ReleaseStep
 
 logger = logging.getLogger(__name__)
 
 
 class WorkflowError(Exception):
     pass
+
+
+def _assert_mutable(release: DataRelease) -> None:
+    if release.is_readonly:
+        raise WorkflowError("This release is archived, so it can't be changed.")
+
+
+def can_control_timer(activity: Activity, actor) -> bool:
+    """Play/pause: assignee (email) ou superusuário."""
+    if actor is None:
+        return False
+    if getattr(actor, "is_superuser", False):
+        return True
+    assignee = activity.assignee
+    if not assignee or not assignee.email:
+        return False
+    user_email = (getattr(actor, "email", None) or "").strip().lower()
+    if not user_email:
+        return False
+    return user_email == assignee.email.strip().lower()
+
+
+def activity_effort_seconds(activity: Activity, *, now=None) -> float:
+    """Soma das sessões de trabalho (inclui sessão aberta até ``now``)."""
+    now = now or timezone.now()
+    total = 0.0
+    sessions = getattr(activity, "_prefetched_objects_cache", {}).get("work_sessions")
+    if sessions is None:
+        sessions = activity.work_sessions.all()
+    for session in sessions:
+        end = session.ended_at or now
+        total += (end - session.started_at).total_seconds()
+    return total
+
+
+def close_open_sessions_for_assignee(
+    assignee_id: int,
+    *,
+    reason: str,
+    actor=None,
+    except_activity_id: int | None = None,
+) -> int:
+    """Fecha sessões abertas do assignee. Retorna quantas fechou."""
+    now = timezone.now()
+    qs = ActivityWorkSession.objects.filter(assignee_id=assignee_id, ended_at__isnull=True)
+    if except_activity_id is not None:
+        qs = qs.exclude(activity_id=except_activity_id)
+    return qs.update(ended_at=now, end_reason=reason, actor=actor)
+
+
+def close_open_session_for_activity(activity: Activity, *, reason: str, actor=None) -> int:
+    """Fecha a sessão aberta desta activity, se houver."""
+    now = timezone.now()
+    return ActivityWorkSession.objects.filter(activity=activity, ended_at__isnull=True).update(
+        ended_at=now, end_reason=reason, actor=actor
+    )
+
+
+def open_work_session(activity: Activity, *, actor=None) -> tuple[ActivityWorkSession | None, list[Activity]]:
+    """Abre sessão nesta activity (pausa qualquer outra do mesmo assignee).
+
+    Retorna ``(session, paused_activities)``. Sem assignee → ``(None, [])``.
+    Sessão já aberta nesta activity → no-op ``(existing, [])``.
+    """
+    if not activity.assignee_id:
+        return None, []
+    existing = ActivityWorkSession.objects.filter(activity=activity, ended_at__isnull=True).first()
+    if existing:
+        return existing, []
+    open_others = list(
+        ActivityWorkSession.objects.filter(assignee_id=activity.assignee_id, ended_at__isnull=True)
+        .exclude(activity_id=activity.id)
+        .select_related("activity")
+    )
+    paused = [s.activity for s in open_others]
+    close_open_sessions_for_assignee(
+        activity.assignee_id,
+        reason=ActivityWorkSession.EndReason.PLAY_SWITCH,
+        actor=actor,
+        except_activity_id=activity.id,
+    )
+    session = ActivityWorkSession.objects.create(
+        activity=activity,
+        assignee_id=activity.assignee_id,
+        started_at=timezone.now(),
+        actor=actor,
+    )
+    return session, paused
+
+
+def play_activity(activity: Activity, *, actor=None) -> tuple[Activity, list[Activity]]:
+    """Inicia/retoma o timer: todo→in_progress se preciso; uma sessão aberta por assignee.
+
+    Retorna ``(activity, paused_activities)`` — as que foram auto-pausadas no switch.
+    """
+    _assert_mutable(activity.release)
+    if activity.release.status == DataRelease.Status.DRAFT:
+        raise WorkflowError("Start the release before changing activity status.")
+    if not activity.assignee_id:
+        raise WorkflowError("Assign someone before starting the timer.")
+    if not can_control_timer(activity, actor):
+        raise WorkflowError("Only the assignee or a superuser can start the timer.")
+    if activity.status not in (Activity.Status.TODO, Activity.Status.IN_PROGRESS):
+        raise WorkflowError("Play only from To do or In progress.")
+    if activity.status == Activity.Status.TODO and not activity.prerequisites_met():
+        pending = list(activity.depends_on.exclude(status=Activity.Status.DONE).values_list("label", flat=True))
+        raise WorkflowError(
+            "Finish these first: " + ", ".join(pending) if pending else "Finish the prerequisites first."
+        )
+
+    with transaction.atomic():
+        if activity.status == Activity.Status.TODO:
+            transition_activity(activity, to_status=Activity.Status.IN_PROGRESS, actor=actor, open_session=False)
+            activity.refresh_from_db()
+        _, paused = open_work_session(activity, actor=actor)
+    return activity, paused
+
+
+def pause_activity(activity: Activity, *, actor=None) -> Activity:
+    """Pausa o timer; status permanece in_progress."""
+    _assert_mutable(activity.release)
+    if activity.release.status == DataRelease.Status.DRAFT:
+        raise WorkflowError("Start the release before changing activity status.")
+    if not can_control_timer(activity, actor):
+        raise WorkflowError("Only the assignee or a superuser can pause the timer.")
+    if activity.status != Activity.Status.IN_PROGRESS:
+        raise WorkflowError("Pause only while In progress.")
+    close_open_session_for_activity(activity, reason=ActivityWorkSession.EndReason.PAUSE, actor=actor)
+    return activity
 
 
 def _safe(call, *args):
@@ -175,11 +304,6 @@ def create_draft(
     return release
 
 
-def _assert_mutable(release: DataRelease) -> None:
-    if release.is_readonly:
-        raise WorkflowError("This release is archived, so it can't be changed.")
-
-
 def _resume_completed_release(release: DataRelease) -> None:
     """Step/atividade novos numa release completada reabrem a execução.
 
@@ -238,6 +362,7 @@ def transition_activity(
     to_status: str,
     actor=None,
     comment: str = "",
+    open_session: bool = True,
 ) -> Activity:
     _assert_mutable(activity.release)
     if activity.release.status == DataRelease.Status.DRAFT:
@@ -293,6 +418,23 @@ def transition_activity(
         actor=actor,
         comment=comment,
     )
+
+    # timer: sair de execução fecha; entrar em in_progress abre (exceto rejeição)
+    if to_status == Activity.Status.IN_REVIEW:
+        close_open_session_for_activity(activity, reason=ActivityWorkSession.EndReason.REVIEW, actor=actor)
+    elif to_status == Activity.Status.BLOCKED:
+        close_open_session_for_activity(activity, reason=ActivityWorkSession.EndReason.BLOCKED, actor=actor)
+    elif to_status == Activity.Status.DONE:
+        close_open_session_for_activity(activity, reason=ActivityWorkSession.EndReason.DONE, actor=actor)
+    elif to_status == Activity.Status.TODO:
+        close_open_session_for_activity(activity, reason=ActivityWorkSession.EndReason.PAUSE, actor=actor)
+    elif to_status == Activity.Status.IN_PROGRESS:
+        # rejeição in_review→in_progress: não abre sozinho (exige Play)
+        # sessão só se o ator for o assignee ou superuser (FTE do assignee)
+        should_open = open_session and from_status != Activity.Status.IN_REVIEW
+        if should_open and can_control_timer(activity, actor):
+            open_work_session(activity, actor=actor)
+
     if to_status == Activity.Status.DONE:
         _unblock_ready_dependents(activity)
     completed = sync_release_completion(activity.release)
