@@ -22,6 +22,9 @@ export default function StepBoard({
   onReorderStep,
   onMoveActivity,
   onDuplicateActivity,
+  matchedIds = null,
+  filterActive = false,
+  hideUnmatched = false,
 }) {
   const firstStep = steps[0];
   const lastStep = steps[steps.length - 1];
@@ -39,6 +42,14 @@ export default function StepBoard({
         const stepActs = activities
           .filter((a) => a.step === step.id)
           .sort((a, b) => a.order - b.order);
+        // hide unmatched (só Kanban): filtra ANTES do map; o header done/total
+        // continua usando a lista completa (contadores não mudam com o filtro)
+        const visibleActs =
+          hideUnmatched && filterActive
+            ? stepActs.filter((a) => matchedIds?.has(a.id))
+            : stepActs;
+        // com hide: colunas sem atividades visíveis somem (só o header vazio não ajuda)
+        if (hideUnmatched && filterActive && visibleActs.length === 0) return null;
         return (
           <Box key={step.id} sx={{ minWidth: 260, maxWidth: 280, flex: "0 0 auto" }}>
             <Box
@@ -107,12 +118,16 @@ export default function StepBoard({
             </Stack>
             </Box>
             <Stack spacing={1}>
-              {stepActs.map((activity, actIdx) => (
+              {visibleActs.map((activity, actIdx) => (
                 <Card
                   key={activity.id}
                   variant="outlined"
                   sx={{
-                    opacity: activity.locked ? 0.7 : 1,
+                    // paridade com o DAG: highlight 0.35; locked+unmatched = o mais baixo
+                    opacity: Math.min(
+                      activity.locked ? 0.7 : 1,
+                      filterActive && !matchedIds?.has(activity.id) ? 0.35 : 1,
+                    ),
                     borderColor:
                       displayStatus(activity) === "blocked" ? "warning.main" : "divider",
                   }}
@@ -155,7 +170,7 @@ export default function StepBoard({
                               <IconButton
                                 size="small"
                                 title="Move activity down"
-                                disabled={actIdx === stepActs.length - 1}
+                                disabled={actIdx === visibleActs.length - 1}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   onMoveActivity(activity, 1);

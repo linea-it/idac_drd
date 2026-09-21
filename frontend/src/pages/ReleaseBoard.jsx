@@ -23,13 +23,15 @@ import {
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, appUrl } from "../api";
 import { releaseStatusLabel } from "../activityStatus";
+import { isFilterActive, matchesFilters } from "../activityFilters";
 import { downloadReport, downloadTextFile } from "../report";
 import ActivityDagBoard from "../components/ActivityDagBoard";
 import ActivityDrawer from "../components/ActivityDrawer";
 import StepColorPicker from "../components/StepColorPicker";
+import ActivityFilterBar from "../components/ActivityFilterBar";
 import ActivityForm from "../components/ActivityForm";
 import StepBoard from "../components/StepBoard";
 import { defaultStepColor } from "../stepColors";
@@ -58,6 +60,9 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const [renameName, setRenameName] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteDraftOpen, setDeleteDraftOpen] = useState(false);
+  // filtros facetados (#25): vivem só aqui; troca Kanban↔DAG preserva
+  const [filters, setFilters] = useState({ assignees: [], statuses: [], modes: [], areas: [] });
+  const [hideUnmatched, setHideUnmatched] = useState(false);
   // modo de edição explícito da execução: Edit habilita, Save finaliza
   const [editMode, setEditMode] = useState(false);
 
@@ -68,6 +73,16 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const completed = release?.status === "completed";
   // draft é sempre editável; em active/completed a edição é um modo explícito (Edit → Save)
   const canEdit = draft || ((inExecution || completed) && editMode);
+
+  // single source of match: só matchesFilters decide o que bate com o filtro
+  const filterActive = isFilterActive(filters);
+  const matchedIds = useMemo(() => {
+    const s = new Set();
+    if (!filterActive) return s;
+    for (const a of activities) if (matchesFilters(a, filters)) s.add(a.id);
+    return s;
+  }, [activities, filters, filterActive]);
+  const matchedCount = filterActive ? matchedIds.size : activities.length;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -515,10 +530,23 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
       {draft && !(release?.steps || []).length && (
         <Alert severity="info">Add a step to start this draft.</Alert>
       )}
+      <ActivityFilterBar
+        activities={activities}
+        filters={filters}
+        onChange={setFilters}
+        matched={matchedCount}
+        total={activities.length}
+        showHideToggle={view === "kanban"}
+        hideUnmatched={hideUnmatched}
+        onHideUnmatched={setHideUnmatched}
+      />
       {view === "kanban" ? (
         <StepBoard
           steps={release?.steps || []}
           activities={activities}
+          matchedIds={matchedIds}
+          filterActive={filterActive}
+          hideUnmatched={hideUnmatched}
           onSelect={selectActivity}
           editable={canEdit}
           onMoveActivity={moveActivityDir}
@@ -537,6 +565,8 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
         <ActivityDagBoard
           steps={release?.steps || []}
           activities={activities}
+          matchedIds={matchedIds}
+          filterActive={filterActive}
           onSelect={selectActivity}
           selectedId={selected?.id ?? null}
           flash={flash}

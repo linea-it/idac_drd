@@ -18,8 +18,17 @@ import StepLabelNode from "./StepLabelNode";
 
 const nodeTypes = { activity: ActivityFlowNode, stepBand: StepBandNode, stepLabel: StepLabelNode };
 
-// selectedId: abre ?activity= com o nó focado; flash: anel no card recém-editado
-export default function ActivityDagBoard({ steps, activities, onSelect, selectedId = null, flash = null }) {
+// selectedId: abre ?activity= com o nó focado; flash: anel no card recém-editado.
+// matchedIds/filterActive: dim do filtro facetado (#25) — nunca remove nós/arestas.
+export default function ActivityDagBoard({
+  steps,
+  activities,
+  onSelect,
+  selectedId = null,
+  flash = null,
+  matchedIds = null,
+  filterActive = false,
+}) {
   return (
     <ReactFlowProvider>
       <DagInner
@@ -28,12 +37,14 @@ export default function ActivityDagBoard({ steps, activities, onSelect, selected
         onSelect={onSelect}
         selectedId={selectedId}
         flash={flash}
+        matchedIds={matchedIds}
+        filterActive={filterActive}
       />
     </ReactFlowProvider>
   );
 }
 
-function DagInner({ steps, activities, onSelect, selectedId, flash }) {
+function DagInner({ steps, activities, onSelect, selectedId, flash, matchedIds, filterActive }) {
   const theme = useTheme();
   const { fitView, setViewport, getViewport } = useReactFlow();
   // dimensões do canvas vêm do store (useReactFlow não as expõe);
@@ -142,8 +153,11 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
   const flowNodes = useMemo(
     () =>
       nodes.map((n) => {
+        // filtro (#25): esmaece atividades que não batem; hover vence enquanto ativo
+        const filterDim = filterActive && n.type === "activity" && !matchedIds?.has(Number(n.id));
         // hover: esmaece tudo que não é o nó nem seus vizinhos diretos
-        const dim = hoverId && n.type === "activity" && n.id !== hoverId && !neighbors.has(n.id);
+        const hoverDim = hoverId && n.type === "activity" && n.id !== hoverId && !neighbors.has(n.id);
+        const dim = hoverId ? hoverDim : filterDim;
         return {
           ...n,
           data: {
@@ -154,10 +168,11 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
           },
         };
       }),
-    [nodes, revealed, hoverId, neighbors, flashActive, flash],
+    [nodes, revealed, hoverId, neighbors, flashActive, flash, filterActive, matchedIds],
   );
 
-  // hover: arestas conectadas mais grossas, o resto esmaece; senão, estilo padrão
+  // hover: arestas conectadas mais grossas, o resto esmaece; senão, o filtro
+  // esmaece arestas com source OU target fora do match; sem nada, estilo padrão
   const styledEdges = useMemo(() => {
     const connected = hoverId ? new Set() : null;
     if (connected) {
@@ -168,6 +183,14 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
     return edges.map((e) => {
       const base = edgeStyleFor(e.targetStatus, theme);
       const isConn = connected?.has(e.id);
+      const filterConn =
+        !hoverId &&
+        filterActive &&
+        matchedIds?.has(Number(e.source)) &&
+        matchedIds?.has(Number(e.target));
+      let opacity = 1;
+      if (hoverId) opacity = isConn ? 1 : 0.15;
+      else if (filterActive) opacity = filterConn ? 1 : 0.15;
       return {
         ...e,
         type: "smoothstep",
@@ -175,12 +198,12 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
         style: {
           ...base.style,
           strokeWidth: isConn ? 2.5 : base.style.strokeWidth,
-          opacity: connected ? (isConn ? 1 : 0.15) : 1,
+          opacity,
           pointerEvents: "none",
         },
       };
     });
-  }, [edges, theme, hoverId]);
+  }, [edges, theme, hoverId, filterActive, matchedIds]);
 
   const doneCount = activities.filter((a) => a.status === "done").length;
 

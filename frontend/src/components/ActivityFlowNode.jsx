@@ -43,7 +43,8 @@ export default function ActivityFlowNode({ data }) {
             boxShadow: flash ? `0 0 0 3px ${flashColor}` : "none",
             px: 1.5,
             py: 1,
-            opacity: locked ? 0.7 : dim ? 0.35 : 1,
+            // paridade com o Kanban: locked+dim = o mais baixo (0.35)
+            opacity: Math.min(locked ? 0.7 : 1, dim ? 0.35 : 1),
             transition: "opacity 150ms ease, border-color 300ms ease, box-shadow 600ms ease",
           }}
         >
