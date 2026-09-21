@@ -3,6 +3,7 @@ import { Box, Chip, Stack, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { displayStatus, statusLabel } from "../activityStatus";
 import { statusColors } from "../statusColors";
+import ModeChip from "./ModeChip";
 import ResourceLinks from "./ResourceLinks";
 
 export default function ActivityFlowNode({ data }) {
@@ -64,12 +65,7 @@ export default function ActivityFlowNode({ data }) {
               color={statusColors[status]}
               sx={{ height: 20, "& .MuiChip-label": { fontSize: 11, px: 0.8 } }}
             />
-            <Chip
-              size="small"
-              label={activity.mode === "nifi" ? "NiFi" : "Manual"}
-              color={activity.mode === "nifi" ? "info" : "default"}
-              sx={{ height: 20, "& .MuiChip-label": { fontSize: 11, px: 0.8 } }}
-            />
+            <ModeChip mode={activity.mode} size="small" sx={{ height: 20 }} />
             {activity.assignee && (
               <Typography
                 variant="caption"

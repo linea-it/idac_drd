@@ -9,6 +9,7 @@ import LockIcon from "@mui/icons-material/Lock";
 import { Box, Card, CardActionArea, CardContent, Chip, IconButton, Stack, Typography } from "@mui/material";
 import { displayStatus, statusLabel } from "../activityStatus";
 import { statusColors } from "../statusColors";
+import ModeChip from "./ModeChip";
 import ResourceLinks from "./ResourceLinks";
 
 export default function StepBoard({
@@ -183,11 +184,7 @@ export default function StepBoard({
                             label={statusLabel(displayStatus(activity))}
                             color={statusColors[displayStatus(activity)]}
                           />
-                          <Chip
-                            size="small"
-                            label={activity.mode === "nifi" ? "NiFi" : "Manual"}
-                            color={activity.mode === "nifi" ? "info" : "default"}
-                          />
+                          <ModeChip mode={activity.mode} size="small" />
                           {activity.assignee && (
                             <Chip
                               size="small"
