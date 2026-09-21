@@ -385,7 +385,7 @@ Essa permissão de leitura de usuários é a configuração mostrada no perfil e
 
 A última permissão é necessária porque o fluxo registra a nota antes de fechar o ticket. A atribuição usa o campo virtual escalar `_users_id_assign`; o direito **Users → Read**, isoladamente, não substitui as permissões de tickets e acompanhamentos.
 
-O identificador GLPI de cada responsável fica em `ExternalIdentity.glpi_id`. Sem ele, o ticket é mantido sem atribuição. Tickets fechados, status 6, são terminais e não são reabertos automaticamente.
+O identificador GLPI de cada responsável fica em `ExternalIdentity.glpi_id`. Sem ele, o ticket é mantido sem atribuição. Tickets novos são criados como **request** (`type=2`), não como incident. Tickets fechados, status 6, são terminais e não são reabertos automaticamente.
 
 Fallbacks:
 

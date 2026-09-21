@@ -53,7 +53,7 @@ def test_create_ticket_success(mock_post, fake_response):
     assert ticket_call.args[0] == "https://glpi.example/apirest.php/Ticket"
     assert ticket_call.kwargs["headers"] == {"App-Token": "app-tok", "Session-Token": "sesstok"}
     # payload da API exige o wrapper "input" (sem ele → ERROR_BAD_ARRAY)
-    assert ticket_call.kwargs["json"] == {"input": {"name": "Ticket name", "content": "Ticket content", "type": 1}}
+    assert ticket_call.kwargs["json"] == {"input": {"name": "Ticket name", "content": "Ticket content", "type": 2}}
 
 
 @mock.patch("requests.post")

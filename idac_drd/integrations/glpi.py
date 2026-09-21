@@ -50,11 +50,11 @@ class GlpiClient:
         self,
         name: str,
         content: str,
-        ticket_type: int = 1,
+        ticket_type: int = 2,
         users_id_requester: int | None = None,
         users_id_assign: int | None = None,
     ) -> dict:
-        """Create a ticket (type 1=incident, 2=request). Returns the ticket dict (``id``).
+        """Create a ticket (type 1=incident, 2=request; default request). Returns the ticket dict (``id``).
 
         The GLPI API requires the payload wrapped in an ``input`` key
         (see http://186.232.60.56/apirest.php).
@@ -193,7 +193,7 @@ def _glpi_client() -> GlpiClient:
 def create_glpi_ticket(
     name: str,
     content: str,
-    ticket_type: int = 1,
+    ticket_type: int = 2,
     users_id_requester: int | None = None,
     users_id_assign: int | None = None,
 ) -> dict | None:

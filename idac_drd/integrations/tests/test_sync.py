@@ -98,7 +98,7 @@ class FakeGlpi:
         self.assignees = []  # users_ids dos atores type 2
         self.ticket_users = []  # entradas {"id", "users_id", "type"}
 
-    def create_ticket(self, name, content, ticket_type=1):
+    def create_ticket(self, name, content, ticket_type=2):
         self.created.append((name, ticket_type))
         self.contents.append(content)
         self.name = name
@@ -216,7 +216,7 @@ def test_creates_issue_and_ticket(clients, release):
         ("PVT_proj", "PVTI_item42", "f_priority", "o_prio_medium"),  # default do board
         ("PVT_proj", "PVTI_item42", "f_status", "o_todo"),
     ]
-    assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
+    assert glpi.created == [("Release 1 - Step A: Step 1", 2)]
     assert not glpi.updated  # ticket nasce new (1) — sem PUT na mesma passada
     # referências persistidas na atividade
     activity.refresh_from_db()
@@ -242,7 +242,7 @@ def test_blocked_issue_created_after_unblock(clients, release):
         activity.refresh_from_db()
 
     assert gh.created == [("linea-it", "repo", "Release 1 - Step A: Step 1")]
-    assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
+    assert glpi.created == [("Release 1 - Step A: Step 1", 2)]
     assert activity.github_issue_number == 42
     assert activity.glpi_ticket_id == 7
 
@@ -325,7 +325,7 @@ def test_without_github_repo_uses_default_repo(clients, release, caplog):
         sync.sync_activity(activity)
 
     assert gh.created == [("linea-it", "idac_drd", "Release 1 - Step A: Step 1")]
-    assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
+    assert glpi.created == [("Release 1 - Step A: Step 1", 2)]
     assert "using default linea-it/idac_drd" in caplog.text
 
 
@@ -481,7 +481,7 @@ def test_project_unavailable_keeps_issue_and_ticket(clients, release, caplog):
 
     assert gh.created == [("linea-it", "repo", "Release 1 - Step A: Step 1")]
     assert not gh.added_items
-    assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
+    assert glpi.created == [("Release 1 - Step A: Step 1", 2)]
     assert "GitHub project sync failed" in caplog.text
 
 
@@ -1016,7 +1016,7 @@ def test_api_failure_is_logged_not_raised(clients, release, monkeypatch, caplog)
 
     assert "GitHub sync failed" in caplog.text
     # GLPI seguiu mesmo com o GitHub falhando
-    assert glpi.created == [("Release 1 - Step A: Step 1", 1)]
+    assert glpi.created == [("Release 1 - Step A: Step 1", 2)]
 
 
 @pytest.mark.django_db(transaction=True)

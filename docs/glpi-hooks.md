@@ -35,7 +35,7 @@ chamada.
 
 | Método | Chamada | Uso |
 |---|---|---|
-| `create_ticket` | `POST /Ticket` com `{"input": {...}}` | criar; atores via campo virtual `_users_id_*` (sem underscore é **ignorado silenciosamente**) |
+| `create_ticket` | `POST /Ticket` com `{"input": {..., "type": 2}}` | criar como **request** (`type=2`; `1`=incident); atores via campo virtual `_users_id_*` (sem underscore é **ignorado silenciosamente**) |
 | `update_ticket` | `PUT /Ticket/{id}` com `{"input": {...}}` | status, título, body, pending_reason |
 | `get_ticket` | `GET /Ticket/{id}` | status atual (idempotência + guarda de terminal) |
 | `get_ticket_users` | `GET /Ticket/{id}/Ticket_User/` | atores atuais (`users_id` + `type` 1=requester, 2=assign, 3=observer) |
@@ -82,8 +82,9 @@ if not activity.glpi_ticket_id:
     Activity.objects.filter(pk=activity.pk).update(glpi_ticket_id=ticket["id"], glpi_ticket_content=body)
 ```
 
-- Ticket nasce **sem atores**, em `new` (1). A passada continua: atribui o
-  executor e ajusta o status do ticket novo na mesma sync.
+- Ticket nasce como **request** (`type=2`, não incident), **sem atores**, em
+  `new` (1). A passada continua: atribui o executor e ajusta o status do
+  ticket novo na mesma sync.
 - **`todo` gera ticket** (a atividade está disponível); `blocked` (pré-requisitos
   pendentes) nunca — não polui o helpdesk com o que não pode começar.
 - Título: `{release.name} - {step.label}: {activity.label}` (contexto no
