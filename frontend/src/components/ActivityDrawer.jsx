@@ -29,6 +29,7 @@ import {
 } from "@mui/material";
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { displayStatus, isPrereqAutoBlock, statusLabel } from "../activityStatus";
 import DependsOnField from "./DependsOnField";
 
 // estados operacionais que o executor escolhe; a entrega (review) e a
@@ -248,8 +249,15 @@ export default function ActivityDrawer({
           <Typography variant="body2" color="text.secondary">
             {activity.step_label} · {activity.key}
           </Typography>
-          {activity.locked && (
-            <Alert severity="warning">Finish the prerequisites to unlock this activity.</Alert>
+          {displayStatus(activity) === "waiting" && (
+            <Alert severity="info">Finish the prerequisites to unlock this activity.</Alert>
+          )}
+          {displayStatus(activity) === "blocked" && (
+            <Alert severity="warning">
+              {activity.blocked_reason
+                ? `This activity is blocked: ${activity.blocked_reason}`
+                : "This activity is blocked."}
+            </Alert>
           )}
           {error && <Alert severity="error">{error}</Alert>}
           <Accordion key={activity.id} defaultExpanded disableGutters>
@@ -261,7 +269,18 @@ export default function ActivityDrawer({
                 {/* transições só existem em execução: em draft o status não muda */}
                 <FormControl fullWidth size="small" disabled={readonly || draft}>
                   <InputLabel>Status</InputLabel>
-                  <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+                  <Select
+                    label="Status"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    renderValue={(v) =>
+                      displayStatus(activity) === "waiting" && v === "blocked"
+                        ? statusLabel("waiting")
+                        : STATUS_OPTIONS.find((s) => s.value === v)?.label ||
+                          NON_SELECTABLE[v] ||
+                          v
+                    }
+                  >
                     {STATUS_OPTIONS.map((s) => (
                       <MenuItem key={s.value} value={s.value}>
                         {s.label}
@@ -306,7 +325,7 @@ export default function ActivityDrawer({
                     <FormControlLabel value="nifi" control={<Radio size="small" />} label="NiFi" />
                   </RadioGroup>
                 </FormControl>
-                {status === "blocked" && (
+                {status === "blocked" && !isPrereqAutoBlock(activity) && (
                   <TextField
                     label="Blocked reason"
                     size="small"
@@ -317,6 +336,11 @@ export default function ActivityDrawer({
                     onChange={(e) => setBlockedReason(e.target.value)}
                     disabled={readonly}
                   />
+                )}
+                {displayStatus(activity) === "waiting" && activity.blocked_reason && (
+                  <Typography variant="body2" color="text.secondary">
+                    {activity.blocked_reason}
+                  </Typography>
                 )}
                 {!readonly && !draft && status === "in_review" && (
                   <Stack spacing={1}>

@@ -259,7 +259,7 @@ def test_patch_depends_on_in_draft_blocks_like_import(user):
     assert list(clone.depends_on.values_list("key", flat=True)) == ["step-1"]
     assert clone.status == Activity.Status.BLOCKED
     assert clone.blocked_reason.startswith("Waiting on prerequisites")
-    assert res.data["locked"] is False
+    assert res.data["locked"] is True  # waiting on deps (auto-block)
 
 
 @pytest.mark.django_db

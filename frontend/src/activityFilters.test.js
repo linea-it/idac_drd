@@ -28,13 +28,30 @@ describe("matchesFilters", () => {
     expect(matchesFilters(act({ assignee: { id: 3 } }), f)).toBe(false);
   });
 
-  it("status blocked via prerequisites_met: false + status todo (displayStatus)", () => {
-    const f = { ...empty, statuses: ["blocked"] };
+  it("status waiting via prerequisites_met: false + status todo (displayStatus)", () => {
+    const f = { ...empty, statuses: ["waiting"] };
     expect(matchesFilters(act({ status: "todo", prerequisites_met: false }), f)).toBe(true);
-    // todo com pré-requisito ok NÃO é blocked
+    // todo com pré-requisito ok NÃO é waiting
     expect(matchesFilters(act(), f)).toBe(false);
-    // done NÃO entra no facet blocked
-    expect(matchesFilters(act({ status: "done" }), f)).toBe(false);
+    // blocked manual NÃO entra no facet waiting
+    expect(matchesFilters(act({ status: "blocked", blocked_reason: "vendor delay" }), f)).toBe(false);
+  });
+
+  it("auto-block do backend (Waiting on prerequisites) aparece como waiting", () => {
+    const f = { ...empty, statuses: ["waiting"] };
+    const auto = act({
+      status: "blocked",
+      prerequisites_met: false,
+      blocked_reason: "Waiting on prerequisites: Step 1",
+    });
+    expect(matchesFilters(auto, f)).toBe(true);
+    expect(matchesFilters(auto, { ...empty, statuses: ["blocked"] })).toBe(false);
+  });
+
+  it("blocked manual permanece distinto de waiting", () => {
+    const f = { ...empty, statuses: ["blocked"] };
+    expect(matchesFilters(act({ status: "blocked", blocked_reason: "vendor delay" }), f)).toBe(true);
+    expect(matchesFilters(act({ status: "todo", prerequisites_met: false }), f)).toBe(false);
   });
 
   it("AND entre facets", () => {
@@ -73,15 +90,22 @@ describe("buildFilterOptions", () => {
     expect(opts.assignees.find((o) => o.id === UNASSIGNED).label).toBe("Unassigned");
   });
 
-  it("statuses vêm do displayStatus (blocked aparece sem status cru blocked)", () => {
+  it("statuses vêm do displayStatus (waiting aparece sem status cru waiting)", () => {
     const opts = buildFilterOptions([
       act(),
       act({ id: 2, status: "todo", prerequisites_met: false }),
-      act({ id: 3, status: "done" }),
+      act({
+        id: 3,
+        status: "blocked",
+        prerequisites_met: false,
+        blocked_reason: "Waiting on prerequisites: Step 1",
+      }),
+      act({ id: 4, status: "done" }),
     ]);
-    expect(opts.statuses).toContain("blocked");
+    expect(opts.statuses).toContain("waiting");
     expect(opts.statuses).toContain("todo");
     expect(opts.statuses).toContain("done");
+    expect(opts.statuses).not.toContain("blocked");
   });
 
   it("áreas vazias ficam fora; só valores presentes não-vazios", () => {

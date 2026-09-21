@@ -10,7 +10,8 @@ export const UNASSIGNED = "__unassigned__";
 // filters: { assignees: (number|UNASSIGNED)[], statuses: string[], modes: string[], areas: string[] }
 // Regras:
 // - Status compara displayStatus(activity) (status efetivo: todo sem
-//   prerequisites_met aparece como "blocked"), nunca activity.status cru.
+//   prerequisites_met aparece como "waiting"), nunca activity.status cru.
+// - "blocked" no facet é só o status manual do banco.
 // - Assignee compara activity.assignee?.id, com UNASSIGNED para sem assignee.
 // - Mode: activity.mode ("manual" | "nifi").
 // - Area: string exata; área vazia só entra se o facet incluir "" (a barra
@@ -32,7 +33,7 @@ export function matchesFilters(activity, filters) {
 
 // Ordem canônica dos valores — estabiliza a identidade/ordem das options dos
 // Autocompletes entre renders.
-const STATUS_ORDER = ["todo", "blocked", "in_progress", "in_review", "done"];
+const STATUS_ORDER = ["todo", "waiting", "blocked", "in_progress", "in_review", "done"];
 const MODE_ORDER = ["manual", "nifi"];
 const byOrder = (order) => (a, b) => order.indexOf(a) - order.indexOf(b);
 

@@ -5,9 +5,9 @@ import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ControlPointDuplicateIcon from "@mui/icons-material/ControlPointDuplicate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
-import LockIcon from "@mui/icons-material/Lock";
+import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import { Box, Card, CardActionArea, CardContent, Chip, IconButton, Stack, Typography } from "@mui/material";
-import { displayStatus, statusLabel } from "../activityStatus";
+import { displayStatus, isStuck, statusLabel } from "../activityStatus";
 import { statusColors } from "../statusColors";
 import ModeChip from "./ModeChip";
 import ResourceLinks from "./ResourceLinks";
@@ -123,11 +123,8 @@ export default function StepBoard({
                   key={activity.id}
                   variant="outlined"
                   sx={{
-                    // paridade com o DAG: highlight 0.35; locked+unmatched = o mais baixo
-                    opacity: Math.min(
-                      activity.locked ? 0.7 : 1,
-                      filterActive && !matchedIds?.has(activity.id) ? 0.35 : 1,
-                    ),
+                    // só o filtro esmaece (não stuck — waiting/blocked ficam legíveis)
+                    opacity: filterActive && !matchedIds?.has(activity.id) ? 0.35 : 1,
                     borderColor:
                       displayStatus(activity) === "blocked" ? "warning.main" : "divider",
                   }}
@@ -136,10 +133,19 @@ export default function StepBoard({
                     <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
                       <Stack spacing={1}>
                         <Stack direction="row" spacing={0.5} alignItems="center">
-                          {activity.locked && <LockIcon fontSize="small" color="disabled" />}
-                          <Typography variant="body2" fontWeight={600} sx={{ flex: 1 }}>
+                          <Typography
+                            variant="body2"
+                            fontWeight={600}
+                            sx={{ flex: 1, minWidth: 0 }}
+                          >
                             {activity.label}
                           </Typography>
+                          {isStuck(activity) && (
+                            <LockOutlinedIcon
+                              sx={{ fontSize: "0.875rem", color: "text.primary", flexShrink: 0 }}
+                              titleAccess="Stuck"
+                            />
+                          )}
                           <ResourceLinks
                             resources={activity.resources}
                             sx={{ p: 0.25, ml: "auto" }}

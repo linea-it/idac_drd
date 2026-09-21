@@ -178,7 +178,13 @@ class ActivitySerializer(serializers.ModelSerializer):
         return obj.prerequisites_met()
 
     def get_locked(self, obj):
-        return obj.status == Activity.Status.TODO and not obj.prerequisites_met()
+        # waiting on deps: todo ainda pendente OU auto-block materializado
+        # (status=blocked + Waiting on prerequisites). Bloqueio manual com
+        # prereqs ok NÃO é locked.
+        return not obj.prerequisites_met() and obj.status in (
+            Activity.Status.TODO,
+            Activity.Status.BLOCKED,
+        )
 
     def get_duration_seconds(self, obj):
         if obj.started_at and obj.completed_at:

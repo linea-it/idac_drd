@@ -7,7 +7,7 @@
 // · 4. Objectives · 5. Steps & Activities · 6. Difficulties · 7. Workload &
 // Participation · 8. References · 9. Appendix (full transition log).
 
-import { releaseStatusLabel, statusLabel } from "./activityStatus";
+import { releaseStatusLabel, statusLabel, displayStatus, isPrereqAutoBlock } from "./activityStatus";
 
 export function fmtDuration(totalSeconds) {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "—";
@@ -160,7 +160,7 @@ export function computeBlockPeriods(activities, transitions) {
     }
     if (open) {
       periods.push(open);
-    } else if (a.status === "blocked") {
+    } else if (a.status === "blocked" && !isPrereqAutoBlock(a)) {
       periods.push({
         activity: a,
         startedAt: a.started_at || a.updated_at,
@@ -417,7 +417,9 @@ export function renderExecutiveSummary(release, activities, metrics) {
   );
   lines.push(`- **Modes:** ${counts.manual} manual · ${counts.nifi} NiFi`);
   if (release.status === "active") {
-    lines.push(`- **Remaining:** ${counts.todo} to do · ${counts.inProgress} in progress · ${counts.inReview} in review`);
+    lines.push(
+      `- **Remaining:** ${counts.todo} to do · ${counts.waiting} waiting · ${counts.inProgress} in progress · ${counts.inReview} in review`,
+    );
   }
   lines.push(
     `- **Dependencies:** ${dependencyStats.lockedCount} activity${dependencyStats.lockedCount === 1 ? "" : "ies"} currently locked by unmet prerequisites`,
@@ -519,7 +521,7 @@ export function renderStepsAndActivities(release, activities, ctx) {
     if (stepLinks) lines.push(`- **Resources:** ${stepLinks}`);
     lines.push("");
     for (const a of acts) {
-      lines.push(`#### ${a.label} — [${statusLabel(a.status)}]`);
+      lines.push(`#### ${a.label} — [${statusLabel(displayStatus(a))}]`);
       lines.push("");
       lines.push(`- **Step:** ${mdCell(step.label)} · **Mode:** ${a.mode === "nifi" ? "NiFi" : "Manual"}`);
       lines.push(`- **Assignee:** ${assigneeName(a)} · **Size:** ${mdCell(a.size || "—")} · **Area:** ${mdCell(a.area || "—")}`);
@@ -682,8 +684,9 @@ export function buildReleaseReport(release, activities, transitions, textRevisio
     done: activities.filter((a) => a.status === "done").length,
     inProgress: activities.filter((a) => a.status === "in_progress").length,
     inReview: activities.filter((a) => a.status === "in_review").length,
-    blocked: activities.filter((a) => a.status === "blocked").length,
-    todo: activities.filter((a) => a.status === "todo").length,
+    blocked: activities.filter((a) => displayStatus(a) === "blocked").length,
+    waiting: activities.filter((a) => displayStatus(a) === "waiting").length,
+    todo: activities.filter((a) => displayStatus(a) === "todo").length,
     manual: activities.filter((a) => a.mode !== "nifi").length,
     nifi: activities.filter((a) => a.mode === "nifi").length,
     withoutAssignee: activities.filter((a) => !a.assignee).length,

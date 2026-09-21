@@ -1,15 +1,35 @@
-// Status efetivo para exibição: atividade em "todo" com pré-requisito ainda não
-// resolvido é exibida como "blocked" (não pode começar). O status real no banco
-// permanece "todo" — o bloqueio é derivado de depends_on via prerequisites_met.
+// Status efetivo para exibição.
+// O backend materializa gate de deps como status="blocked" + motivo
+// "Waiting on prerequisites: …" (_block_until_prerequisites). Isso NÃO é
+// bloqueio manual — na UI aparece como "waiting". Bloqueio manual (motivo
+// livre) permanece "blocked".
+const PREREQ_BLOCK_PREFIXES = ["Waiting on prerequisites", "Aguardando pré-requisitos"];
+
+export function isPrereqAutoBlock(activity) {
+  if (activity.status !== "blocked") return false;
+  const reason = activity.blocked_reason || "";
+  // legado: blocked sem motivo com deps pendentes também era auto
+  if (!reason.trim()) return !activity.prerequisites_met;
+  return PREREQ_BLOCK_PREFIXES.some((p) => reason.startsWith(p));
+}
+
 export function displayStatus(activity) {
-  return activity.status === "todo" && !activity.prerequisites_met
-    ? "blocked"
-    : activity.status;
+  if (activity.status === "todo" && !activity.prerequisites_met) return "waiting";
+  if (isPrereqAutoBlock(activity)) return "waiting";
+  return activity.status;
+}
+
+// Travada na UI (cadeado): Waiting (deps) OU Blocked (manual).
+// Não misturar com o campo API `locked` (só gate de deps — legado do relatório).
+export function isStuck(activity) {
+  const s = displayStatus(activity);
+  return s === "waiting" || s === "blocked";
 }
 
 // Rótulos humanizados dos chips de status (sem underscore, capitalizados).
 const STATUS_LABELS = {
   todo: "To do",
+  waiting: "Waiting",
   in_progress: "In Progress",
   in_review: "In review",
   done: "Completed",
