@@ -222,6 +222,8 @@ INTERNAL_GROUPS = env.list("INTERNAL_GROUPS", default=[])
 NAVBAR_IDAC_URL = env.str("NAVBAR_IDAC_URL", default="https://scienceplatform-dev.linea.org.br/idac")
 NAVBAR_DATA_URL = env.str("NAVBAR_DATA_URL", default="https://data.linea.org.br/")
 NAVBAR_DOCS_URL = env.str("NAVBAR_DOCS_URL", default="https://docs.linea.org.br/")
+NAVBAR_GITHUB_URL = env.str("NAVBAR_GITHUB_URL", default="https://github.com/linea-it/idac_drd")
+NAVBAR_GITHUB_LABEL = env.str("NAVBAR_GITHUB_LABEL", default="linea-it/idac_drd")
 
 SETTINGS_EXPORT = [
     "AUTH_SAML2_ENABLED",
@@ -232,6 +234,8 @@ SETTINGS_EXPORT = [
     "NAVBAR_IDAC_URL",
     "NAVBAR_DATA_URL",
     "NAVBAR_DOCS_URL",
+    "NAVBAR_GITHUB_URL",
+    "NAVBAR_GITHUB_LABEL",
 ]
 
 # External integrations (GitHub, GLPI, Slack) — all opt-in.

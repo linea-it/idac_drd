@@ -11,7 +11,7 @@ from idac_drd.workflow.services import (
     duplicate_activity,
     transition_activity,
 )
-from idac_drd.workflow.tests.helpers import make_release
+from idac_drd.workflow.tests.helpers import make_release, prime_effort
 
 User = get_user_model()
 
@@ -39,6 +39,7 @@ def test_gate_blocks_until_prerequisite_done(release, user):
         transition_activity(a2, to_status=Activity.Status.IN_PROGRESS, actor=user)
     # step-1 conclui via revisão; step-2 (sem assignee) aprova o anterior
     transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user)
+    prime_effort(a1, user)
     transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
     transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
     transition_activity(a2, to_status=Activity.Status.IN_PROGRESS, actor=user)
@@ -64,6 +65,7 @@ def test_done_unblocks_prerequisite_blocked_dependent(release, user):
     a2 = release.activities.get(key="step-2")
     assert a2.status == Activity.Status.BLOCKED
     transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user)
+    prime_effort(a1, user)
     transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
     transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
     # pré-requisito concluído: a dependente desbloqueia sozinha (todo, sem reason)
@@ -81,6 +83,7 @@ def test_manually_blocked_stays_blocked_after_prerequisite_done(release, user):
     a2.blocked_reason = "Esperando fornecedor"
     a2.save(update_fields=["blocked_reason"])
     transition_activity(a2, to_status=Activity.Status.BLOCKED, actor=user)
+    prime_effort(a1, user)
     transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
     transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
     # bloqueio humano não é desfeito pela conclusão do pré-requisito
@@ -93,6 +96,7 @@ def test_blocked_cannot_go_to_review(release, user):
     a1 = release.activities.get(key="step-1")
     a2 = release.activities.get(key="step-2")
     with pytest.raises(WorkflowError):
+        prime_effort(a2, user)
         transition_activity(a2, to_status=Activity.Status.IN_REVIEW, actor=user)
     assert a1.status == Activity.Status.TODO  # nada mudou
 
@@ -128,6 +132,7 @@ def test_api_transition_gate(release, user):
     a1 = release.activities.get(key="step-1")
     res = client.patch(f"/api/activities/{a1.id}/", {"status": "in_progress"}, format="json")
     assert res.status_code == 200
+    prime_effort(a1, user)
     res = client.patch(f"/api/activities/{a1.id}/", {"status": "in_review"}, format="json")
     assert res.status_code == 200
     res = client.patch(f"/api/activities/{a1.id}/", {"status": "done"}, format="json")
@@ -259,7 +264,7 @@ def test_patch_depends_on_in_draft_blocks_like_import(user):
     assert list(clone.depends_on.values_list("key", flat=True)) == ["step-1"]
     assert clone.status == Activity.Status.BLOCKED
     assert clone.blocked_reason.startswith("Waiting on prerequisites")
-    assert res.data["locked"] is False
+    assert res.data["locked"] is True  # waiting on deps (auto-block)
 
 
 @pytest.mark.django_db
@@ -314,12 +319,14 @@ def test_release_auto_completed(release, user, staff_user):
     a2 = release.activities.get(key="step-2")
     # step-1: aprovado pelo próximo (step-2 não tem assignee → qualquer um)
     transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user)
+    prime_effort(a1, user)
     transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
     transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
     release.refresh_from_db()
     assert release.status == DataRelease.Status.ACTIVE
     # step-2 é a última do step → staff aprova
     transition_activity(a2, to_status=Activity.Status.IN_PROGRESS, actor=user)
+    prime_effort(a2, user)
     transition_activity(a2, to_status=Activity.Status.IN_REVIEW, actor=user)
     transition_activity(a2, to_status=Activity.Status.DONE, actor=staff_user)
     release.refresh_from_db()

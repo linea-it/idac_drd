@@ -7,7 +7,7 @@
 // · 4. Objectives · 5. Steps & Activities · 6. Difficulties · 7. Workload &
 // Participation · 8. References · 9. Appendix (full transition log).
 
-import { releaseStatusLabel, statusLabel } from "./activityStatus";
+import { releaseStatusLabel, statusLabel, displayStatus, isPrereqAutoBlock } from "./activityStatus";
 
 export function fmtDuration(totalSeconds) {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "—";
@@ -85,9 +85,15 @@ function assigneeName(a) {
 
 // Duração de execução (cycle time) de uma activity concluída, com fallback
 // para dados legados sem duration_seconds preenchido.
+// cycle = calendário (started_at → completed_at); effort = sessões play/pause.
 function cycleSecondsOf(a) {
   if (a.duration_seconds != null) return a.duration_seconds;
   if (a.started_at && a.completed_at) return (new Date(a.completed_at) - new Date(a.started_at)) / 1000;
+  return null;
+}
+
+function effortSecondsOf(a) {
+  if (a.effort_seconds != null) return a.effort_seconds;
   return null;
 }
 
@@ -160,7 +166,7 @@ export function computeBlockPeriods(activities, transitions) {
     }
     if (open) {
       periods.push(open);
-    } else if (a.status === "blocked") {
+    } else if (a.status === "blocked" && !isPrereqAutoBlock(a)) {
       periods.push({
         activity: a,
         startedAt: a.started_at || a.updated_at,
@@ -211,10 +217,17 @@ export function computeAssigneeStats(activities) {
         count: 0,
         done: 0,
         totalCycleSeconds: 0,
+        totalEffortSeconds: 0,
+        effortCount: 0,
       });
     }
     const row = byKey.get(key);
     row.count++;
+    const effort = effortSecondsOf(a);
+    if (effort != null) {
+      row.totalEffortSeconds += effort;
+      row.effortCount++;
+    }
     if (a.status === "done") {
       row.done++;
       const s = cycleSecondsOf(a);
@@ -222,7 +235,11 @@ export function computeAssigneeStats(activities) {
     }
   }
   return [...byKey.values()]
-    .map((r) => ({ ...r, avgCycleSeconds: r.done ? r.totalCycleSeconds / r.done : null }))
+    .map((r) => ({
+      ...r,
+      avgCycleSeconds: r.done ? r.totalCycleSeconds / r.done : null,
+      avgEffortSeconds: r.effortCount ? r.totalEffortSeconds / r.effortCount : null,
+    }))
     .sort((x, y) => y.count - x.count);
 }
 
@@ -255,6 +272,7 @@ export function computeStepStats(release, activities, waitTimes, blockPeriods) {
     const acts = activities.filter((a) => a.step === step.id);
     const done = acts.filter((a) => a.status === "done");
     const cycles = done.map(cycleSecondsOf).filter((s) => s != null);
+    const efforts = acts.map(effortSecondsOf).filter((s) => s != null);
     const waits = acts.map((a) => waitTimes.get(a.id)).filter((s) => s != null);
     const stepBlocks = blockPeriods.filter((p) => p.activity.step === step.id);
     const blockSeconds = stepBlocks
@@ -269,6 +287,7 @@ export function computeStepStats(release, activities, waitTimes, blockPeriods) {
       done: done.length,
       pct: acts.length ? Math.round((100 * done.length) / acts.length) : 0,
       avgCycleSeconds: cycles.length ? cycles.reduce((s, d) => s + d, 0) / cycles.length : null,
+      avgEffortSeconds: efforts.length ? efforts.reduce((s, d) => s + d, 0) / efforts.length : null,
       avgWaitSeconds: waits.length ? waits.reduce((s, d) => s + d, 0) / waits.length : null,
       blockedCount: stepBlocks.length,
       avgBlockSeconds: blockSeconds.length
@@ -397,6 +416,15 @@ export function renderExecutiveSummary(release, activities, metrics) {
   } else {
     lines.push("- **Throughput:** no completed activity");
   }
+  const efforts = activities.map(effortSecondsOf).filter((s) => s != null);
+  if (efforts.length) {
+    const totalEffort = efforts.reduce((s, d) => s + d, 0);
+    lines.push(
+      `- **Effort (play time):** total ${fmtDuration(totalEffort)} across ${efforts.length} activit${efforts.length === 1 ? "y" : "ies"} with timed sessions · average ${fmtDuration(totalEffort / efforts.length)}`,
+    );
+  } else {
+    lines.push("- **Effort (play time):** no work sessions recorded");
+  }
   const waits = activities.map((a) => waitTimes.get(a.id)).filter((s) => s != null);
   lines.push(
     waits.length
@@ -417,7 +445,9 @@ export function renderExecutiveSummary(release, activities, metrics) {
   );
   lines.push(`- **Modes:** ${counts.manual} manual · ${counts.nifi} NiFi`);
   if (release.status === "active") {
-    lines.push(`- **Remaining:** ${counts.todo} to do · ${counts.inProgress} in progress · ${counts.inReview} in review`);
+    lines.push(
+      `- **Remaining:** ${counts.todo} to do · ${counts.waiting} waiting · ${counts.inProgress} in progress · ${counts.inReview} in review`,
+    );
   }
   lines.push(
     `- **Dependencies:** ${dependencyStats.lockedCount} activity${dependencyStats.lockedCount === 1 ? "" : "ies"} currently locked by unmet prerequisites`,
@@ -500,11 +530,11 @@ export function renderStepsAndActivities(release, activities, ctx) {
     lines.push("No activities recorded.");
     return lines;
   }
-  lines.push("| Step | Total | Done | % | Avg cycle | Avg wait | Blocked | Avg blocked time |");
-  lines.push("|---|---|---|---|---|---|---|---|");
+  lines.push("| Step | Total | Done | % | Avg cycle | Avg effort | Avg wait | Blocked | Avg blocked time |");
+  lines.push("|---|---|---|---|---|---|---|---|---|");
   for (const s of stepStats) {
     lines.push(
-      `| ${mdCell(s.step.label)} | ${s.total} | ${s.done} | ${s.pct}% | ${s.avgCycleSeconds != null ? fmtDuration(s.avgCycleSeconds) : "—"} | ${s.avgWaitSeconds != null ? fmtDuration(s.avgWaitSeconds) : "—"} | ${s.blockedCount} | ${s.avgBlockSeconds != null ? fmtDuration(s.avgBlockSeconds) : "—"} |`,
+      `| ${mdCell(s.step.label)} | ${s.total} | ${s.done} | ${s.pct}% | ${s.avgCycleSeconds != null ? fmtDuration(s.avgCycleSeconds) : "—"} | ${s.avgEffortSeconds != null ? fmtDuration(s.avgEffortSeconds) : "—"} | ${s.avgWaitSeconds != null ? fmtDuration(s.avgWaitSeconds) : "—"} | ${s.blockedCount} | ${s.avgBlockSeconds != null ? fmtDuration(s.avgBlockSeconds) : "—"} |`,
     );
   }
   lines.push("");
@@ -519,7 +549,7 @@ export function renderStepsAndActivities(release, activities, ctx) {
     if (stepLinks) lines.push(`- **Resources:** ${stepLinks}`);
     lines.push("");
     for (const a of acts) {
-      lines.push(`#### ${a.label} — [${statusLabel(a.status)}]`);
+      lines.push(`#### ${a.label} — [${statusLabel(displayStatus(a))}]`);
       lines.push("");
       lines.push(`- **Step:** ${mdCell(step.label)} · **Mode:** ${a.mode === "nifi" ? "NiFi" : "Manual"}`);
       lines.push(`- **Assignee:** ${assigneeName(a)} · **Size:** ${mdCell(a.size || "—")} · **Area:** ${mdCell(a.area || "—")}`);
@@ -534,10 +564,11 @@ export function renderStepsAndActivities(release, activities, ctx) {
         : a.started_at
           ? `${fmtDuration((Date.now() - new Date(a.started_at).getTime()) / 1000)} (in progress)`
           : "—";
+      const effort = effortSecondsOf(a) != null ? fmtDuration(effortSecondsOf(a)) : "—";
       const wait = waitTimes.get(a.id) != null ? fmtDuration(waitTimes.get(a.id)) : "—";
       const lead = leadTimes.get(a.id) != null ? fmtDuration(leadTimes.get(a.id)) : "—";
       lines.push(
-        `- **Timeline:** created ${fmtDate(a.created_at)} → started ${fmtDate(a.started_at)} → completed ${fmtDate(a.completed_at)} · cycle ${cycle} · wait ${wait} · lead ${lead}`,
+        `- **Timeline:** created ${fmtDate(a.created_at)} → started ${fmtDate(a.started_at)} → completed ${fmtDate(a.completed_at)} · cycle ${cycle} · effort ${effort} · wait ${wait} · lead ${lead}`,
       );
       const timeline = transitionsByActivity.get(a.id) || [];
       if (timeline.length) {
@@ -608,12 +639,14 @@ export function renderWorkload(activities, assigneeStats, actorStats) {
   lines.push(
     "#### Workload by assignee",
     "",
-    "| Assignee | Activities | Completed | Total cycle time | Avg cycle time |",
-    "|---|---|---|---|---|",
+    "Cycle = calendar time (started → completed). Effort = active play/pause sessions.",
+    "",
+    "| Assignee | Activities | Completed | Total cycle | Avg cycle | Total effort | Avg effort |",
+    "|---|---|---|---|---|---|---|",
   );
   for (const r of assigneeStats) {
     lines.push(
-      `| ${mdCell(r.assignee)} | ${r.count} | ${r.done} | ${r.done ? fmtDuration(r.totalCycleSeconds) : "—"} | ${r.avgCycleSeconds != null ? fmtDuration(r.avgCycleSeconds) : "—"} |`,
+      `| ${mdCell(r.assignee)} | ${r.count} | ${r.done} | ${r.done ? fmtDuration(r.totalCycleSeconds) : "—"} | ${r.avgCycleSeconds != null ? fmtDuration(r.avgCycleSeconds) : "—"} | ${r.effortCount ? fmtDuration(r.totalEffortSeconds) : "—"} | ${r.avgEffortSeconds != null ? fmtDuration(r.avgEffortSeconds) : "—"} |`,
     );
   }
   lines.push(
@@ -682,8 +715,9 @@ export function buildReleaseReport(release, activities, transitions, textRevisio
     done: activities.filter((a) => a.status === "done").length,
     inProgress: activities.filter((a) => a.status === "in_progress").length,
     inReview: activities.filter((a) => a.status === "in_review").length,
-    blocked: activities.filter((a) => a.status === "blocked").length,
-    todo: activities.filter((a) => a.status === "todo").length,
+    blocked: activities.filter((a) => displayStatus(a) === "blocked").length,
+    waiting: activities.filter((a) => displayStatus(a) === "waiting").length,
+    todo: activities.filter((a) => displayStatus(a) === "todo").length,
     manual: activities.filter((a) => a.mode !== "nifi").length,
     nifi: activities.filter((a) => a.mode === "nifi").length,
     withoutAssignee: activities.filter((a) => !a.assignee).length,

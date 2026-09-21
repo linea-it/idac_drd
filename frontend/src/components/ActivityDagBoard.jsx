@@ -10,7 +10,7 @@ import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Stack, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { computeDagState } from "../dagState";
+import { computeDagState, DAG_VIEWPORT_VERSION } from "../dagState";
 import { edgeStyleFor } from "../edgeStyles";
 import ActivityFlowNode from "./ActivityFlowNode";
 import StepBandNode from "./StepBandNode";
@@ -18,8 +18,21 @@ import StepLabelNode from "./StepLabelNode";
 
 const nodeTypes = { activity: ActivityFlowNode, stepBand: StepBandNode, stepLabel: StepLabelNode };
 
-// selectedId: abre ?activity= com o nó focado; flash: anel no card recém-editado
-export default function ActivityDagBoard({ steps, activities, onSelect, selectedId = null, flash = null }) {
+// selectedId: abre ?activity= com o nó focado; flash: anel no card recém-editado.
+// matchedIds/filterActive: dim do filtro facetado (#25) — nunca remove nós/arestas.
+export default function ActivityDagBoard({
+  steps,
+  activities,
+  onSelect,
+  selectedId = null,
+  flash = null,
+  matchedIds = null,
+  filterActive = false,
+  onPlay,
+  onPause,
+  isSuperuser = false,
+  userEmail = "",
+}) {
   return (
     <ReactFlowProvider>
       <DagInner
@@ -28,22 +41,44 @@ export default function ActivityDagBoard({ steps, activities, onSelect, selected
         onSelect={onSelect}
         selectedId={selectedId}
         flash={flash}
+        matchedIds={matchedIds}
+        filterActive={filterActive}
+        onPlay={onPlay}
+        onPause={onPause}
+        isSuperuser={isSuperuser}
+        userEmail={userEmail}
       />
     </ReactFlowProvider>
   );
 }
 
-function DagInner({ steps, activities, onSelect, selectedId, flash }) {
+function DagInner({
+  steps,
+  activities,
+  onSelect,
+  selectedId,
+  flash,
+  matchedIds,
+  filterActive,
+  onPlay,
+  onPause,
+  isSuperuser,
+  userEmail,
+}) {
   const theme = useTheme();
   const { fitView, setViewport, getViewport } = useReactFlow();
   // dimensões do canvas vêm do store (useReactFlow não as expõe);
   // seletores primitivos separados — objeto novo por snapshot causaria loop de render
   const width = useStore((s) => s.width);
   const height = useStore((s) => s.height);
-  // o zoom/posição do DAG persiste entre visualizações (troca de aba/página),
-  // por release — releases com steps diferentes fitam por altura na primeira vez
+  // viewport persiste por release; DAG_VIEWPORT_VERSION invalida caches após
+  // mudanças de layout/fit (altura do canvas, rows, pathOptions, …)
   const viewportKey = useMemo(
-    () => `idac_drd:dagViewport:${[...steps].map((l) => l.id).sort((a, b) => a - b).join(",")}`,
+    () =>
+      `idac_drd:dagViewport:v${DAG_VIEWPORT_VERSION}:${[...steps]
+        .map((l) => l.id)
+        .sort((a, b) => a - b)
+        .join(",")}`,
     [steps],
   );
   const { nodes, edges, graphWidth, graphHeight, graphX } = useMemo(
@@ -142,8 +177,11 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
   const flowNodes = useMemo(
     () =>
       nodes.map((n) => {
+        // filtro (#25): esmaece atividades que não batem; hover vence enquanto ativo
+        const filterDim = filterActive && n.type === "activity" && !matchedIds?.has(Number(n.id));
         // hover: esmaece tudo que não é o nó nem seus vizinhos diretos
-        const dim = hoverId && n.type === "activity" && n.id !== hoverId && !neighbors.has(n.id);
+        const hoverDim = hoverId && n.type === "activity" && n.id !== hoverId && !neighbors.has(n.id);
+        const dim = hoverId ? hoverDim : filterDim;
         return {
           ...n,
           data: {
@@ -151,13 +189,31 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
             revealed,
             dim,
             flash: flashActive && flash?.id === n.id,
+            onPlay,
+            onPause,
+            isSuperuser,
+            userEmail,
           },
         };
       }),
-    [nodes, revealed, hoverId, neighbors, flashActive, flash],
+    [
+      nodes,
+      revealed,
+      hoverId,
+      neighbors,
+      flashActive,
+      flash,
+      filterActive,
+      matchedIds,
+      onPlay,
+      onPause,
+      isSuperuser,
+      userEmail,
+    ],
   );
 
-  // hover: arestas conectadas mais grossas, o resto esmaece; senão, estilo padrão
+  // hover: arestas conectadas mais grossas, o resto esmaece; senão, o filtro
+  // esmaece arestas com source OU target fora do match; sem nada, estilo padrão
   const styledEdges = useMemo(() => {
     const connected = hoverId ? new Set() : null;
     if (connected) {
@@ -168,6 +224,14 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
     return edges.map((e) => {
       const base = edgeStyleFor(e.targetStatus, theme);
       const isConn = connected?.has(e.id);
+      const filterConn =
+        !hoverId &&
+        filterActive &&
+        matchedIds?.has(Number(e.source)) &&
+        matchedIds?.has(Number(e.target));
+      let opacity = 1;
+      if (hoverId) opacity = isConn ? 1 : 0.15;
+      else if (filterActive) opacity = filterConn ? 1 : 0.15;
       return {
         ...e,
         type: "smoothstep",
@@ -175,12 +239,12 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
         style: {
           ...base.style,
           strokeWidth: isConn ? 2.5 : base.style.strokeWidth,
-          opacity: connected ? (isConn ? 1 : 0.15) : 1,
+          opacity,
           pointerEvents: "none",
         },
       };
     });
-  }, [edges, theme, hoverId]);
+  }, [edges, theme, hoverId, filterActive, matchedIds]);
 
   const doneCount = activities.filter((a) => a.status === "done").length;
 
@@ -191,7 +255,8 @@ function DagInner({ steps, activities, onSelect, selectedId, flash }) {
       </Typography>
       <Box
         sx={{
-          height: "calc(100vh - 230px)",
+          // mais área vertical → fit-height inicial com zoom maior (mais steps visíveis)
+          height: "calc(100vh - 140px)",
           border: 1,
           borderColor: "divider",
           borderRadius: 1,

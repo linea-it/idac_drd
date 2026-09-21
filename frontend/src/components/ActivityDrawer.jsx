@@ -2,6 +2,8 @@ import AddIcon from "@mui/icons-material/Add";
 import ControlPointDuplicateIcon from "@mui/icons-material/ControlPointDuplicate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import PauseIcon from "@mui/icons-material/Pause";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import {
   Accordion,
   AccordionDetails,
@@ -29,6 +31,13 @@ import {
 } from "@mui/material";
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { displayStatus, isPrereqAutoBlock, statusLabel } from "../activityStatus";
+import {
+  canControlTimer,
+  formatEffort,
+  timerGateMessage,
+  timerGateReason,
+} from "../timerUi";
 import DependsOnField from "./DependsOnField";
 
 // estados operacionais que o executor escolhe; a entrega (review) e a
@@ -59,6 +68,11 @@ export default function ActivityDrawer({
   onDelete,
   onDuplicate,
   onMove,
+  onPlay,
+  onPause,
+  onRecordEffort,
+  isSuperuser = false,
+  userEmail = "",
 }) {
   const [status, setStatus] = useState("todo");
   const [mode, setMode] = useState("manual");
@@ -74,6 +88,8 @@ export default function ActivityDrawer({
   const [size, setSize] = useState("");
   const [stepId, setStepId] = useState("");
   const [dependsOnIds, setDependsOnIds] = useState([]);
+  const [manualMinutes, setManualMinutes] = useState("");
+  const [showManualEffort, setShowManualEffort] = useState(false);
   const [resources, setResources] = useState([]);
   const [moveStepId, setMoveStepId] = useState("");
   const [afterId, setAfterId] = useState("");
@@ -116,6 +132,8 @@ export default function ActivityDrawer({
     setNotes(activity.notes || "");
     setBlockedReason(activity.blocked_reason || "");
     setRejectReason("");
+    setManualMinutes("");
+    setShowManualEffort(false);
     setLabel(activity.label);
     setDescription(activity.description || "");
     // colchetes são formato de persistência (tickets): o dashboard mostra o
@@ -145,6 +163,8 @@ export default function ActivityDrawer({
 
   // estrutura só se edita em draft ou no modo de edição da execução (canEdit)
   const structDisabled = readonly || !canEdit;
+  const canTimer = canControlTimer(activity, { isSuperuser, userEmail });
+  const gateMsg = timerGateMessage(timerGateReason(activity, { isSuperuser, userEmail }));
   const objectiveLines = objectives
     .split("\n")
     .map((line) => line.trim())
@@ -227,6 +247,21 @@ export default function ActivityDrawer({
     }
   }
 
+  async function submitManualEffort() {
+    if (!manualMinutes || Number(manualMinutes) <= 0) return;
+    setError("");
+    setSaving(true);
+    try {
+      await onRecordEffort(activity, Number(manualMinutes));
+      setManualMinutes("");
+      setShowManualEffort(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleMove() {
     setError("");
     try {
@@ -248,8 +283,15 @@ export default function ActivityDrawer({
           <Typography variant="body2" color="text.secondary">
             {activity.step_label} · {activity.key}
           </Typography>
-          {activity.locked && (
-            <Alert severity="warning">Finish the prerequisites to unlock this activity.</Alert>
+          {displayStatus(activity) === "waiting" && (
+            <Alert severity="info">Finish the prerequisites to unlock this activity.</Alert>
+          )}
+          {displayStatus(activity) === "blocked" && (
+            <Alert severity="warning">
+              {activity.blocked_reason
+                ? `This activity is blocked: ${activity.blocked_reason}`
+                : "This activity is blocked."}
+            </Alert>
           )}
           {error && <Alert severity="error">{error}</Alert>}
           <Accordion key={activity.id} defaultExpanded disableGutters>
@@ -261,7 +303,18 @@ export default function ActivityDrawer({
                 {/* transições só existem em execução: em draft o status não muda */}
                 <FormControl fullWidth size="small" disabled={readonly || draft}>
                   <InputLabel>Status</InputLabel>
-                  <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+                  <Select
+                    label="Status"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    renderValue={(v) =>
+                      displayStatus(activity) === "waiting" && v === "blocked"
+                        ? statusLabel("waiting")
+                        : STATUS_OPTIONS.find((s) => s.value === v)?.label ||
+                          NON_SELECTABLE[v] ||
+                          v
+                    }
+                  >
                     {STATUS_OPTIONS.map((s) => (
                       <MenuItem key={s.value} value={s.value}>
                         {s.label}
@@ -275,14 +328,174 @@ export default function ActivityDrawer({
                     )}
                   </Select>
                 </FormControl>
+                {!readonly &&
+                  !draft &&
+                  canTimer &&
+                  (status === "todo" || status === "in_progress") &&
+                  activity.prerequisites_met !== false &&
+                  displayStatus(activity) !== "waiting" && (
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%" }}>
+                      {activity.is_playing ? (
+                        <Button
+                          variant="outlined"
+                          startIcon={<PauseIcon />}
+                          onClick={async () => {
+                            setError("");
+                            setSaving(true);
+                            try {
+                              await onPause?.(activity);
+                            } catch (err) {
+                              setError(err.message);
+                            } finally {
+                              setSaving(false);
+                            }
+                          }}
+                          disabled={saving || !onPause}
+                        >
+                          Pause
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="contained"
+                          startIcon={<PlayArrowIcon />}
+                          onClick={async () => {
+                            setError("");
+                            setSaving(true);
+                            try {
+                              await onPlay?.(activity);
+                            } catch (err) {
+                              setError(err.message);
+                            } finally {
+                              setSaving(false);
+                            }
+                          }}
+                          disabled={saving || !onPlay || !activity.assignee}
+                        >
+                          Play
+                        </Button>
+                      )}
+                      {activity.effort_seconds > 0 && formatEffort(activity.effort_seconds) ? (
+                        <Typography variant="body2" color="text.secondary">
+                          {activity.is_playing ? "In Progress · " : "Effort · "}
+                          {formatEffort(activity.effort_seconds)}
+                        </Typography>
+                      ) : (
+                        showManualEffort &&
+                        status === "in_progress" &&
+                        activity.status === "in_progress" &&
+                        !activity.is_playing &&
+                        onRecordEffort && (
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ ml: "auto" }}>
+                            <TextField
+                              size="small"
+                              type="number"
+                              label="Minutes"
+                              value={manualMinutes}
+                              onChange={(e) => setManualMinutes(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Escape") {
+                                  setShowManualEffort(false);
+                                  setManualMinutes("");
+                                  return;
+                                }
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  submitManualEffort();
+                                }
+                              }}
+                              inputProps={{ min: 1, step: 1, max: 24 * 60 }}
+                              sx={{ width: 120 }}
+                              autoFocus
+                            />
+                            <Button
+                              size="small"
+                              variant="text"
+                              disabled={saving || !manualMinutes || Number(manualMinutes) <= 0}
+                              aria-label="Save effort"
+                              onClick={submitManualEffort}
+                              sx={{ textTransform: "none", minWidth: 0 }}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="text"
+                              color="inherit"
+                              disabled={saving}
+                              aria-label="Cancel effort"
+                              onClick={() => {
+                                setShowManualEffort(false);
+                                setManualMinutes("");
+                              }}
+                              sx={{ color: "text.secondary", textTransform: "none", minWidth: 0, px: 0.5 }}
+                            >
+                              Cancel
+                            </Button>
+                          </Stack>
+                        )
+                      )}
+                      {!showManualEffort &&
+                        status === "in_progress" &&
+                        activity.status === "in_progress" &&
+                        !activity.is_playing &&
+                        !(activity.effort_seconds > 0) &&
+                        onRecordEffort && (
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="inherit"
+                            sx={{
+                              ml: "auto",
+                              color: "text.secondary",
+                              textTransform: "none",
+                              fontWeight: 400,
+                              minWidth: 0,
+                              px: 0.5,
+                            }}
+                            disabled={saving}
+                            onClick={() => setShowManualEffort(true)}
+                          >
+                            Add Effort
+                          </Button>
+                        )}
+                    </Stack>
+                  )}
+                {!readonly &&
+                  !draft &&
+                  !canTimer &&
+                  (status === "todo" || status === "in_progress") &&
+                  displayStatus(activity) !== "waiting" && (
+                    <Stack spacing={0.5}>
+                      {gateMsg && (
+                        <Typography variant="caption" color="text.secondary">
+                          {gateMsg}
+                        </Typography>
+                      )}
+                      {formatEffort(activity.effort_seconds) && (
+                        <Typography variant="body2" color="text.secondary">
+                          {activity.is_playing ? "In Progress · " : "Effort · "}
+                          {formatEffort(activity.effort_seconds)}
+                        </Typography>
+                      )}
+                    </Stack>
+                  )}
                 {!readonly && !draft && status === "in_progress" && activity.status === "in_progress" && (
-                  <Button
-                    variant="contained"
-                    onClick={() => handleTransition("in_review")}
-                    disabled={saving}
-                  >
-                    Finish and send to review
-                  </Button>
+                  <Stack spacing={0.5}>
+                    <Button
+                      variant="contained"
+                      onClick={() => handleTransition("in_review")}
+                      disabled={
+                        saving || !(activity.is_playing || (activity.effort_seconds ?? 0) > 0)
+                      }
+                    >
+                      Finish and send to review
+                    </Button>
+                    {!(activity.is_playing || (activity.effort_seconds ?? 0) > 0) && (
+                      <Typography variant="caption" color="text.secondary">
+                        No effort yet — use Play or Add Effort first
+                      </Typography>
+                    )}
+                  </Stack>
                 )}
                 <FormControl fullWidth size="small" disabled={readonly}>
                   <InputLabel>Assignee</InputLabel>
@@ -306,7 +519,7 @@ export default function ActivityDrawer({
                     <FormControlLabel value="nifi" control={<Radio size="small" />} label="NiFi" />
                   </RadioGroup>
                 </FormControl>
-                {status === "blocked" && (
+                {status === "blocked" && !isPrereqAutoBlock(activity) && (
                   <TextField
                     label="Blocked reason"
                     size="small"
@@ -317,6 +530,11 @@ export default function ActivityDrawer({
                     onChange={(e) => setBlockedReason(e.target.value)}
                     disabled={readonly}
                   />
+                )}
+                {displayStatus(activity) === "waiting" && activity.blocked_reason && (
+                  <Typography variant="body2" color="text.secondary">
+                    {activity.blocked_reason}
+                  </Typography>
                 )}
                 {!readonly && !draft && status === "in_review" && (
                   <Stack spacing={1}>

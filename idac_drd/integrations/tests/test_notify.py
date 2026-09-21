@@ -17,6 +17,7 @@ from idac_drd.integrations import notify
 from idac_drd.users.models import ExternalIdentity
 from idac_drd.workflow.models import Activity, DataRelease, ReleaseStep
 from idac_drd.workflow.services import _block_until_prerequisites, add_activity, start_release, transition_activity
+from idac_drd.workflow.tests.helpers import prime_effort
 
 SITE = "https://example.test"
 
@@ -249,6 +250,105 @@ def test_rejection_failure_logged_not_raised(release, executor, slack, caplog):
     with override_settings(SLACK_ENABLED=True):
         notify.notify_rejection(a1, "motivo", reviewer="bob")  # não levanta
     assert "Slack rejection notification failed" in caplog.text
+
+
+# ── bloqueio manual: aviso com motivo ───────────────────────────────────────
+
+
+def test_blocked_dm_goes_to_assignee(release, executor, slack):
+    release, a1, _ = release
+    a1.assignee = executor
+    a1.save()
+    with override_settings(SLACK_ENABLED=True, SITE_URL=SITE):
+        notify.notify_blocked(a1, "Esperando fornecedor", actor="bob")
+
+    assert len(slack.dms) == 1
+    user_id, text = slack.dms[0]
+    assert user_id == "U_ALICE"
+    assert "Release 1 · *A1*" in text
+    assert "sua atividade foi bloqueada." in text
+    assert "Bloqueada por bob." in text
+    assert "*Motivo:* Esperando fornecedor" in text
+    assert f"<{SITE}/releases/r1/|Abrir a atividade>" in text
+    assert "<@" not in text
+
+
+def test_blocked_without_assignee_skipped(release, slack):
+    release, a1, _ = release  # a1 sem assignee
+    with override_settings(SLACK_ENABLED=True):
+        notify.notify_blocked(a1, "motivo", actor="bob")
+    assert not slack.dms
+
+
+def test_blocked_without_slack_id_skipped(release, executor, slack):
+    release, a1, _ = release
+    executor.slack_id = ""
+    executor.save()
+    a1.assignee = executor
+    a1.save()
+    with override_settings(SLACK_ENABLED=True):
+        notify.notify_blocked(a1, "motivo", actor="bob")
+    assert not slack.dms
+
+
+def test_blocked_goes_to_channel_when_configured(release, slack):
+    release, a1, _ = release  # a1 sem assignee: sem DM-alvo
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM", SITE_URL=SITE):
+        notify.notify_blocked(a1, "Esperando fornecedor", actor="bob")
+
+    assert not slack.dms
+    assert [c for c, _ in slack.channels] == ["C_TEAM"]
+    text = slack.channels[0][1]
+    assert "a atividade foi bloqueada." in text
+    assert "*Motivo:* Esperando fornecedor" in text
+    assert f"<{SITE}/releases/r1/|Abrir a atividade>" in text
+    assert "<@" not in text
+
+
+def test_blocked_with_channel_skips_dm(release, executor, slack):
+    release, a1, _ = release
+    a1.assignee = executor
+    a1.save()
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM", SITE_URL=SITE):
+        notify.notify_blocked(a1, "motivo", actor="bob")
+
+    assert not slack.dms  # DM só como fallback sem canal
+    assert len(slack.channels) == 1
+    assert "<@U_ALICE>" in slack.channels[0][1]
+
+
+def test_blocked_gated_by_release_status(release, executor, slack):
+    release, a1, _ = release
+    a1.assignee = executor
+    a1.save()
+    release.status = DataRelease.Status.ARCHIVED
+    release.save()
+    with override_settings(SLACK_ENABLED=True):
+        notify.notify_blocked(a1, "motivo", actor="bob")
+    assert not slack.dms
+
+
+def test_blocked_empty_reason_skipped(release, executor, slack):
+    release, a1, _ = release
+    a1.assignee = executor
+    a1.save()
+    with override_settings(SLACK_ENABLED=True):
+        notify.notify_blocked(a1, "   ", actor="bob")
+    assert not slack.dms
+
+
+def test_blocked_failure_logged_not_raised(release, executor, slack, caplog):
+    release, a1, _ = release
+    a1.assignee = executor
+    a1.save()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("slack down")
+
+    slack.send_dm_to_user = boom
+    with override_settings(SLACK_ENABLED=True):
+        notify.notify_blocked(a1, "motivo", actor="bob")  # não levanta
+    assert "Slack blocked notification failed" in caplog.text
 
 
 # ── tarefa pronta para iniciar: aviso ao assignee ───────────────────────────
@@ -561,6 +661,7 @@ def test_on_commit_notifies_ready_on_auto_unblock(monkeypatch):
     assert a2.status == Activity.Status.BLOCKED
     try:
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None)
+        prime_effort(a1, None)
         transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         transition_activity(a1, to_status=Activity.Status.DONE, actor=None)
         assert len(ready_calls) == 1
@@ -634,6 +735,7 @@ def test_on_commit_notifies_after_review_and_rejection(monkeypatch):
     try:
         start_release(release)
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None)
+        prime_effort(a1, None)
         transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         assert len(review_calls) == 1
         assert review_calls[0].key == "a1"
@@ -643,8 +745,57 @@ def test_on_commit_notifies_after_review_and_rejection(monkeypatch):
         assert rejection_calls[0][0].key == "a1"
         assert rejection_calls[0][1] == "fix"
         # novo in_review notifica de novo
+        prime_effort(a1, None)
         transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         assert len(review_calls) == 2
+    finally:
+        release.delete()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_on_commit_notifies_on_manual_block(monkeypatch):
+    """Bloqueio manual (motivo setado antes, como a view) agenda notify_blocked."""
+    from django.contrib.auth import get_user_model
+
+    blocked_calls = []
+
+    def capture_blocked(activity, reason, actor):
+        blocked_calls.append((activity, reason, actor))
+
+    monkeypatch.setattr("idac_drd.integrations.notify.notify_blocked", capture_blocked)
+
+    user = get_user_model().objects.create_user(username="bob", password="x")
+    release = DataRelease.objects.create(name="P", slug="p-block", status=DataRelease.Status.ACTIVE)
+    step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")
+    a1 = Activity.objects.create(release=release, step=step, key="a1", label="A1", order=0)
+    try:
+        a1.blocked_reason = "Esperando fornecedor"
+        a1.save(update_fields=["blocked_reason"])
+        transition_activity(a1, to_status=Activity.Status.BLOCKED, actor=user)
+        assert len(blocked_calls) == 1
+        assert blocked_calls[0][0].key == "a1"
+        assert blocked_calls[0][1] == "Esperando fornecedor"
+        assert blocked_calls[0][2] == "bob"
+    finally:
+        release.delete()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_auto_prereq_block_does_not_notify_blocked(monkeypatch):
+    """Auto-block de pré-requisitos não passa por transition_activity → sem Slack."""
+    blocked_calls = []
+
+    monkeypatch.setattr("idac_drd.integrations.notify.notify_blocked", blocked_calls.append)
+
+    release = DataRelease.objects.create(name="P", slug="p-autoblock", status=DataRelease.Status.ACTIVE)
+    step = ReleaseStep.objects.create(release=release, key="a", label="Step A", order=0, color="#000099")
+    a1 = Activity.objects.create(release=release, step=step, key="a1", label="A1", order=0)
+    a2 = Activity.objects.create(release=release, step=step, key="a2", label="A2", order=1)
+    a2.depends_on.set([a1])
+    try:
+        _block_until_prerequisites(a2)
+        assert a2.status == Activity.Status.BLOCKED
+        assert not blocked_calls
     finally:
         release.delete()
 
@@ -663,10 +814,12 @@ def test_on_commit_notifies_complete_when_last_approved(monkeypatch):
     a2 = Activity.objects.create(release=release, step=step, key="a2", label="A2", order=1)
     try:
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None)
+        prime_effort(a1, None)
         transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         transition_activity(a1, to_status=Activity.Status.DONE, actor=None)
         assert calls == []  # a2 ainda pendente: release continua ativa
         transition_activity(a2, to_status=Activity.Status.IN_PROGRESS, actor=None)
+        prime_effort(a2, None)
         transition_activity(a2, to_status=Activity.Status.IN_REVIEW, actor=None)
         transition_activity(a2, to_status=Activity.Status.DONE, actor=None)
         assert len(calls) == 1
@@ -735,6 +888,30 @@ def test_remind_stale_todos_skips_in_progress(release, slack):
     with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM"):
         assert notify.remind_stale_todos() == 0
     assert not slack.channels
+
+
+def test_remind_stale_todos_skips_when_assignee_busy(release, slack):
+    """#30: não lembrar TODO se o assignee já tem outra atividade In Progress."""
+    release_obj, a1, a2 = release
+    bob = a2.assignee
+    a1.assignee = bob
+    a1.status = Activity.Status.IN_PROGRESS
+    a1.save(update_fields=["assignee", "status"])
+    a3 = Activity.objects.create(
+        release=release_obj,
+        step=a1.step,
+        key="a3",
+        label="A3",
+        order=2,
+        assignee=bob,
+        status=Activity.Status.TODO,
+        ready_at=timezone.now() - timedelta(hours=13),
+    )
+    with override_settings(SLACK_ENABLED=True, SLACK_CHANNEL_ID="C_TEAM"):
+        assert notify.remind_stale_todos() == 0
+    assert not slack.channels
+    a3.refresh_from_db()
+    assert a3.stale_todo_notified_at is None
 
 
 def test_remind_stale_todos_skips_unmet_prereqs(release, slack):

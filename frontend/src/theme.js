@@ -19,6 +19,16 @@ const theme = createTheme({
   shape: {
     borderRadius: 8,
   },
+  components: {
+    MuiChip: {
+      styleOverrides: {
+        // MUI Chip defaults to a 16px pill; use shape.borderRadius (8) ≈ 50% less round.
+        root: ({ theme }) => ({
+          borderRadius: theme.shape.borderRadius,
+        }),
+      },
+    },
+  },
 });
 
 export default theme;

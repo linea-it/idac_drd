@@ -9,7 +9,7 @@ o CTA é omitido (nunca imprimir path relativo).
 
 Threads por step: no início da release, cada step com atividades ganha uma
 mensagem âncora no canal (notify_release_started); os eventos de atividade
-(notify_ready/review/rejection) viram replies na thread do step
+(notify_ready/review/rejection/blocked) viram replies na thread do step
 (``ReleaseStep.slack_thread_ts``). Falha na âncora degrada para mensagem
 top-level. A conclusão (notify_release_complete) é mensagem de topo (marco
 final).
@@ -205,6 +205,15 @@ def remind_stale_todos() -> int:
     for activity in candidates:
         if not activity.prerequisites_met():
             continue
+        # #30: não lembrar quem já está com alguma atividade em execução
+        if (
+            activity.assignee_id
+            and Activity.objects.filter(
+                assignee_id=activity.assignee_id,
+                status=Activity.Status.IN_PROGRESS,
+            ).exists()
+        ):
+            continue
         claimed = (
             Activity.objects.filter(pk=activity.pk, status=Activity.Status.TODO)
             .filter(due)
@@ -290,6 +299,37 @@ def notify_rejection(activity: Activity, comment: str, reviewer: str = "") -> No
         _post_or_dm(_join(head, body_channel, link), _join(head, body_dm, link), recipient, thread_ts)
     except Exception:
         logger.warning("Slack rejection notification failed for activity %s", activity.id, exc_info=True)
+
+
+def notify_blocked(activity: Activity, reason: str, actor: str = "") -> None:
+    """Avisa que ``activity`` foi bloqueada manualmente (motivo obrigatório).
+
+    Só bloqueio operacional (não o auto-block de pré-requisitos). Canal com
+    menção ao assignee; DM a ele só como fallback sem canal. ``reason`` é o
+    ``blocked_reason``/comentário; ``actor`` é o username de quem bloqueou.
+    """
+    if not settings.SLACK_ENABLED:
+        return
+    if activity.release.status != DataRelease.Status.ACTIVE:
+        return
+    if not (reason or "").strip():
+        return
+
+    assignee = activity.assignee
+    recipient = assignee.slack_id if assignee else None
+    if not settings.SLACK_CHANNEL_ID and not recipient:
+        return
+
+    head = _headline(activity)
+    by = f"\nBloqueada por {actor}." if actor else ""
+    body_channel = f"{_mention(recipient)}a atividade foi bloqueada.{by}\n*Motivo:* {reason}"
+    body_dm = f"sua atividade foi bloqueada.{by}\n*Motivo:* {reason}"
+    link = _release_link(activity.release, "Abrir a atividade")
+    try:
+        thread_ts = _ensure_step_thread(activity.step) if settings.SLACK_CHANNEL_ID else None
+        _post_or_dm(_join(head, body_channel, link), _join(head, body_dm, link), recipient, thread_ts)
+    except Exception:
+        logger.warning("Slack blocked notification failed for activity %s", activity.id, exc_info=True)
 
 
 def notify_release_started(release: DataRelease) -> None:

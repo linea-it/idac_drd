@@ -37,16 +37,17 @@ import { releaseStatusLabel } from "../activityStatus";
 
 // estado de um step: concluído só com 100% done; In Progress se alguma
 // atividade já saiu de todo/blocked (started), mesmo com 0% done.
+// Ainda não iniciado → Waiting (pipeline; não misturar com To do de activity).
 export function stepStatus(progress) {
   const pct = progress?.pct || 0;
   const started = progress?.started || 0;
   if (pct >= 100) return "completed";
   if (started > 0 || pct > 0) return "in progress";
-  return "todo";
+  return "waiting";
 }
 
 const STEP_STATUS_LABELS = {
-  todo: "To do",
+  waiting: "Waiting",
   "in progress": "In Progress",
   completed: "Completed",
 };
@@ -107,7 +108,7 @@ function ReleaseCard({ rel, onDelete }) {
                 .map((step) => {
                   const pct = step.progress?.pct || 0;
                   const status = stepStatus(step.progress);
-                  const active = status !== "todo";
+                  const active = status !== "waiting";
                   return (
                     <Box
                       key={step.id}

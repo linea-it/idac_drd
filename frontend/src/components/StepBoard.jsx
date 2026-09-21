@@ -5,11 +5,28 @@ import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ControlPointDuplicateIcon from "@mui/icons-material/ControlPointDuplicate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
-import LockIcon from "@mui/icons-material/Lock";
+import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import PauseIcon from "@mui/icons-material/Pause";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Box, Card, CardActionArea, CardContent, Chip, IconButton, Stack, Typography } from "@mui/material";
-import { displayStatus, statusLabel } from "../activityStatus";
+import { displayStatus, isStuck, statusLabel } from "../activityStatus";
 import { statusColors } from "../statusColors";
+import {
+  canControlTimer,
+  timerGateMessage,
+  timerGateReason,
+  workflowChip,
+} from "../timerUi";
+import ModeChip from "./ModeChip";
 import ResourceLinks from "./ResourceLinks";
+
+function timerEligible(activity) {
+  const status = activity.status;
+  if (status !== "todo" && status !== "in_progress") return false;
+  if (displayStatus(activity) === "waiting") return false;
+  if (status === "todo" && activity.prerequisites_met === false) return false;
+  return true;
+}
 
 export default function StepBoard({
   steps,
@@ -21,9 +38,17 @@ export default function StepBoard({
   onReorderStep,
   onMoveActivity,
   onDuplicateActivity,
+  onPlay,
+  onPause,
+  isSuperuser = false,
+  userEmail = "",
+  matchedIds = null,
+  filterActive = false,
+  hideUnmatched = false,
 }) {
   const firstStep = steps[0];
   const lastStep = steps[steps.length - 1];
+  const auth = { isSuperuser, userEmail };
   return (
     <Box
       sx={{
@@ -38,6 +63,11 @@ export default function StepBoard({
         const stepActs = activities
           .filter((a) => a.step === step.id)
           .sort((a, b) => a.order - b.order);
+        const visibleActs =
+          hideUnmatched && filterActive
+            ? stepActs.filter((a) => matchedIds?.has(a.id))
+            : stepActs;
+        if (hideUnmatched && filterActive && visibleActs.length === 0) return null;
         return (
           <Box key={step.id} sx={{ minWidth: 260, maxWidth: 280, flex: "0 0 auto" }}>
             <Box
@@ -106,24 +136,41 @@ export default function StepBoard({
             </Stack>
             </Box>
             <Stack spacing={1}>
-              {stepActs.map((activity, actIdx) => (
+              {visibleActs.map((activity, actIdx) => {
+                const eligible = timerEligible(activity);
+                const showTimer = eligible && canControlTimer(activity, auth) && (onPlay || onPause);
+                const gateMsg =
+                  eligible && (onPlay || onPause) && !canControlTimer(activity, auth)
+                    ? timerGateMessage(timerGateReason(activity, auth))
+                    : null;
+                const chip = workflowChip(activity, displayStatus, statusLabel, statusColors);
+                return (
                 <Card
                   key={activity.id}
                   variant="outlined"
                   sx={{
-                    opacity: activity.locked ? 0.7 : 1,
+                    opacity: filterActive && !matchedIds?.has(activity.id) ? 0.35 : 1,
                     borderColor:
                       displayStatus(activity) === "blocked" ? "warning.main" : "divider",
                   }}
                 >
                   <CardActionArea onClick={() => onSelect(activity)}>
-                    <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <CardContent sx={{ py: 1.5, pb: 1, "&:last-child": { pb: 1 } }}>
                       <Stack spacing={1}>
                         <Stack direction="row" spacing={0.5} alignItems="center">
-                          {activity.locked && <LockIcon fontSize="small" color="disabled" />}
-                          <Typography variant="body2" fontWeight={600} sx={{ flex: 1 }}>
+                          <Typography
+                            variant="body2"
+                            fontWeight={600}
+                            sx={{ flex: 1, minWidth: 0 }}
+                          >
                             {activity.label}
                           </Typography>
+                          {isStuck(activity) && (
+                            <LockOutlinedIcon
+                              sx={{ fontSize: "0.875rem", color: "text.primary", flexShrink: 0 }}
+                              titleAccess="Stuck"
+                            />
+                          )}
                           <ResourceLinks
                             resources={activity.resources}
                             sx={{ p: 0.25, ml: "auto" }}
@@ -133,6 +180,7 @@ export default function StepBoard({
                               <IconButton
                                 size="small"
                                 title="Make a copy"
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   onDuplicateActivity(activity);
@@ -144,6 +192,7 @@ export default function StepBoard({
                                 size="small"
                                 title="Move activity up"
                                 disabled={actIdx === 0}
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   onMoveActivity(activity, -1);
@@ -154,7 +203,8 @@ export default function StepBoard({
                               <IconButton
                                 size="small"
                                 title="Move activity down"
-                                disabled={actIdx === stepActs.length - 1}
+                                disabled={actIdx === visibleActs.length - 1}
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   onMoveActivity(activity, 1);
@@ -173,34 +223,60 @@ export default function StepBoard({
                             .map((obj, i) => (
                               <Typography key={i} variant="caption" color="text.secondary">
                                 {activity.status === "done" ? "✓ " : "○ "}
-                                {/* o prefixo [x]/[ ] é de persistência (tickets); o card mostra só o texto */}
                                 {obj.replace(/^\[[x ]\]\s*/, "")}
                               </Typography>
                             ))}
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                          <Chip
-                            size="small"
-                            label={statusLabel(displayStatus(activity))}
-                            color={statusColors[displayStatus(activity)]}
-                          />
-                          <Chip
-                            size="small"
-                            label={activity.mode === "nifi" ? "NiFi" : "Manual"}
-                            color={activity.mode === "nifi" ? "info" : "default"}
-                          />
-                          {activity.assignee && (
-                            <Chip
-                              size="small"
-                              variant="outlined"
-                              label={activity.assignee.name || activity.assignee.email}
-                            />
-                          )}
-                        </Stack>
                       </Stack>
                     </CardContent>
                   </CardActionArea>
+                  <Stack
+                    direction="row"
+                    spacing={0.5}
+                    flexWrap="wrap"
+                    useFlexGap
+                    alignItems="center"
+                    sx={{ px: 1.5, pb: gateMsg ? 0.5 : 1.5 }}
+                  >
+                    <Chip size="small" label={chip.label} color={chip.color} />
+                    <ModeChip mode={activity.mode} size="small" />
+                    {activity.assignee && (
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={activity.assignee.name || activity.assignee.email}
+                      />
+                    )}
+                    {showTimer && (
+                      <IconButton
+                        size="small"
+                        color={activity.is_playing ? "success" : "primary"}
+                        title={activity.is_playing ? "Pause" : "Play"}
+                        aria-label={activity.is_playing ? "Pause" : "Play"}
+                        onClick={() => {
+                          if (activity.is_playing) onPause?.(activity);
+                          else onPlay?.(activity);
+                        }}
+                      >
+                        {activity.is_playing ? (
+                          <PauseIcon fontSize="small" />
+                        ) : (
+                          <PlayArrowIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    )}
+                  </Stack>
+                  {gateMsg && (
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ display: "block", px: 1.5, pb: 1.5 }}
+                    >
+                      {gateMsg}
+                    </Typography>
+                  )}
                 </Card>
-              ))}
+                );
+              })}
             </Stack>
           </Box>
         );

@@ -315,3 +315,114 @@ test("falha de rede nos options mostra banner com a mensagem", async () => {
   await screen.findByText("Release Smoke");
   expect(screen.getByText(/Network Error/)).toBeInTheDocument();
 });
+
+// --- filtros facetados (#25) ---
+
+test("barra de filtros presente: 4 facets + Showing N of M", async () => {
+  render(<ReleaseBoard releaseSlug="release-smoke" isStaff={false} />);
+  await screen.findByText("Release Smoke");
+  expect(screen.getByLabelText("Assignee")).toBeInTheDocument();
+  expect(screen.getByLabelText("Status")).toBeInTheDocument();
+  expect(screen.getByLabelText("Mode")).toBeInTheDocument();
+  expect(screen.getByLabelText("Area")).toBeInTheDocument();
+  expect(screen.getByText("Showing 0 of 0")).toBeInTheDocument();
+});
+
+test("filtro de status destaca cards no Kanban sem alterar contadores", async () => {
+  const steps = [{ id: 1, key: "step-a", label: "Step A", order: 0, color: "#0989cb", resources: [] }];
+  const mk = (id, key, label, status) => ({
+    id,
+    key,
+    label,
+    step: 1,
+    order: id,
+    status,
+    mode: "manual",
+    resources: [],
+    depends_on: [],
+    locked: false,
+    prerequisites_met: true,
+    objectives: "",
+  });
+  const first = mk(10, "a1", "First", "todo");
+  const second = mk(11, "a2", "Second", "done");
+  apiMock.get.mockImplementation((path) => {
+    if (path === "/api/releases/release-smoke/")
+      return Promise.resolve({ ...release, steps });
+    if (path === "/api/releases/release-smoke/activities/") return Promise.resolve([first, second]);
+    if (path === "/api/external-identities/") return Promise.resolve([]);
+    if (path === "/api/github/options/") return Promise.resolve({ repos: [], areas: [], sizes: [] });
+    return Promise.reject(new Error(`unexpected: ${path}`));
+  });
+  render(<ReleaseBoard releaseSlug="release-smoke" isStaff={false} />);
+  await screen.findByText("First");
+  expect(screen.getByText("Showing 2 of 2")).toBeInTheDocument();
+
+  fireEvent.mouseDown(screen.getByRole("combobox", { name: "Status" }));
+  fireEvent.click(await screen.findByRole("option", { name: "To do" }));
+
+  expect(screen.getByText("Showing 1 of 2")).toBeInTheDocument();
+  const cardOf = (label) => screen.getByText(label).closest(".MuiCard-root");
+  // match permanece opaco; não-match cai para 0.35 (mesma opacidade do DAG)
+  expect(cardOf("First")).toHaveStyle({ opacity: "1" });
+  expect(cardOf("Second")).toHaveStyle({ opacity: "0.35" });
+  // header do step usa a lista completa — contador não muda com o filtro
+  const stepHeader = screen.getByText("Step A").closest(".MuiBox-root");
+  expect(within(stepHeader).getByText("1/2 done")).toBeInTheDocument();
+  // Clear aparece com o filtro ativo e zera tudo
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(screen.getByText("Showing 2 of 2")).toBeInTheDocument();
+  expect(cardOf("Second")).toHaveStyle({ opacity: "1" });
+});
+
+test("Hide unmatched remove cards e esconde colunas vazias no Kanban", async () => {
+  const steps = [
+    { id: 1, key: "step-a", label: "Step A", order: 0, color: "#0989cb", resources: [] },
+    { id: 2, key: "step-b", label: "Step B", order: 1, color: "#31297f", resources: [] },
+  ];
+  const mk = (id, key, label, status, step) => ({
+    id,
+    key,
+    label,
+    step,
+    order: id,
+    status,
+    mode: "manual",
+    resources: [],
+    depends_on: [],
+    locked: false,
+    prerequisites_met: true,
+    objectives: "",
+  });
+  const first = mk(10, "a1", "First", "todo", 1);
+  const second = mk(11, "a2", "Second", "done", 2);
+  apiMock.get.mockImplementation((path) => {
+    if (path === "/api/releases/release-smoke/")
+      return Promise.resolve({ ...release, steps });
+    if (path === "/api/releases/release-smoke/activities/") return Promise.resolve([first, second]);
+    if (path === "/api/external-identities/") return Promise.resolve([]);
+    if (path === "/api/github/options/") return Promise.resolve({ repos: [], areas: [], sizes: [] });
+    return Promise.reject(new Error(`unexpected: ${path}`));
+  });
+  render(<ReleaseBoard releaseSlug="release-smoke" isStaff={false} />);
+  await screen.findByText("First");
+  expect(screen.getByText("Step B")).toBeInTheDocument();
+
+  fireEvent.mouseDown(screen.getByRole("combobox", { name: "Status" }));
+  fireEvent.click(await screen.findByRole("option", { name: "To do" }));
+
+  fireEvent.click(screen.getByRole("checkbox", { name: "Hide unmatched" }));
+  expect(screen.getByText("First")).toBeInTheDocument();
+  expect(screen.queryByText("Second")).not.toBeInTheDocument();
+  // coluna com match permanece (contador da lista completa); coluna vazia some
+  expect(screen.getByText("Step A")).toBeInTheDocument();
+  const stepHeader = screen.getByText("Step A").closest(".MuiBox-root");
+  expect(within(stepHeader).getByText("0/1 done")).toBeInTheDocument();
+  expect(screen.queryByText("Step B")).not.toBeInTheDocument();
+  // Clear zera hide — switch volta a desabilitado e cards/colunas reaparecem
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(screen.getByText("Second")).toBeInTheDocument();
+  expect(screen.getByText("Step B")).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: "Hide unmatched" })).toBeDisabled();
+  expect(screen.getByRole("checkbox", { name: "Hide unmatched" })).not.toBeChecked();
+});

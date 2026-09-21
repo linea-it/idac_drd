@@ -27,7 +27,14 @@ from idac_drd.workflow.api.serializers import (
     UserCreateSerializer,
     UserSerializer,
 )
-from idac_drd.workflow.models import Activity, ActivityTextRevision, ActivityTransition, DataRelease, ReleaseStep
+from idac_drd.workflow.models import (
+    Activity,
+    ActivityTextRevision,
+    ActivityTransition,
+    ActivityWorkSession,
+    DataRelease,
+    ReleaseStep,
+)
 from idac_drd.workflow.services import (
     WorkflowError,
     _block_until_prerequisites,
@@ -35,6 +42,7 @@ from idac_drd.workflow.services import (
     add_activity,
     add_step_to_release,
     archive_release,
+    close_open_session_for_activity,
     create_draft,
     delete_activity,
     delete_release_step,
@@ -43,6 +51,9 @@ from idac_drd.workflow.services import (
     export_draft_payload,
     import_draft_payload,
     move_activity,
+    pause_activity,
+    play_activity,
+    record_manual_effort,
     reorder_release_step,
     start_release,
     transition_activity,
@@ -227,7 +238,7 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
     def activities(self, request, slug=None):
         release = self.get_object()
         if request.method == "GET":
-            qs = release.activities.select_related("step", "assignee").prefetch_related("depends_on")
+            qs = release.activities.select_related("step", "assignee").prefetch_related("depends_on", "work_sessions")
             return Response(ActivitySerializer(qs, many=True).data)
 
         ser = ActivityCreateSerializer(data=request.data)
@@ -274,7 +285,9 @@ class DataReleaseViewSet(viewsets.ModelViewSet):
 class ActivityViewSet(
     mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
 ):
-    queryset = Activity.objects.select_related("release", "step", "assignee").prefetch_related("depends_on")
+    queryset = Activity.objects.select_related("release", "step", "assignee").prefetch_related(
+        "depends_on", "work_sessions"
+    )
     serializer_class = ActivitySerializer
     permission_classes = [IsAuthenticated]
 
@@ -286,6 +299,7 @@ class ActivityViewSet(
         data = request.data.copy()
         to_status = data.pop("status", None)
         comment = data.pop("comment", "")
+        prev_assignee_id = activity.assignee_id
 
         serializer = self.get_serializer(activity, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -312,6 +326,10 @@ class ActivityViewSet(
         with transaction.atomic():
             self.perform_update(serializer)
             activity.refresh_from_db()
+            if activity.assignee_id != prev_assignee_id:
+                close_open_session_for_activity(
+                    activity, reason=ActivityWorkSession.EndReason.REASSIGN, actor=request.user
+                )
             revisions = []
             for field, old_value in before.items():
                 new_value = getattr(activity, field) or ""
@@ -366,6 +384,39 @@ class ActivityViewSet(
         except WorkflowError as exc:
             raise ValidationError(str(exc)) from exc
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="play")
+    def play(self, request, pk=None):
+        activity = self.get_object()
+        try:
+            activity, paused = play_activity(activity, actor=request.user)
+        except WorkflowError as exc:
+            raise ValidationError(str(exc)) from exc
+        activity.refresh_from_db()
+        data = ActivitySerializer(activity).data
+        data["paused_activities"] = [{"id": a.id, "label": a.label} for a in paused]
+        return Response(data)
+
+    @action(detail=True, methods=["post"], url_path="pause")
+    def pause(self, request, pk=None):
+        activity = self.get_object()
+        try:
+            pause_activity(activity, actor=request.user)
+        except WorkflowError as exc:
+            raise ValidationError(str(exc)) from exc
+        activity.refresh_from_db()
+        return Response(ActivitySerializer(activity).data)
+
+    @action(detail=True, methods=["post"], url_path="effort")
+    def effort(self, request, pk=None):
+        """Registra minutos de effort manualmente (esqueceu o Play; só se ainda não há sessão)."""
+        activity = self.get_object()
+        try:
+            record_manual_effort(activity, minutes=request.data.get("minutes"), actor=request.user)
+        except WorkflowError as exc:
+            raise ValidationError(str(exc)) from exc
+        activity.refresh_from_db()
+        return Response(ActivitySerializer(activity).data)
 
     @action(detail=True, methods=["post"], url_path="move")
     def move(self, request, pk=None):

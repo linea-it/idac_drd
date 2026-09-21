@@ -3,6 +3,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import EditIcon from "@mui/icons-material/Edit";
+import PauseIcon from "@mui/icons-material/Pause";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SaveIcon from "@mui/icons-material/Save";
 import {
@@ -17,24 +18,28 @@ import {
   IconButton,
   LinearProgress,
   Skeleton,
+  Snackbar,
   Stack,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, appUrl } from "../api";
 import { releaseStatusLabel } from "../activityStatus";
+import { isFilterActive, matchesFilters } from "../activityFilters";
+import { formatEffort } from "../timerUi";
 import { downloadReport, downloadTextFile } from "../report";
 import ActivityDagBoard from "../components/ActivityDagBoard";
 import ActivityDrawer from "../components/ActivityDrawer";
 import StepColorPicker from "../components/StepColorPicker";
+import ActivityFilterBar from "../components/ActivityFilterBar";
 import ActivityForm from "../components/ActivityForm";
 import StepBoard from "../components/StepBoard";
 import { defaultStepColor } from "../stepColors";
 
-export default function ReleaseBoard({ releaseSlug, isStaff }) {
+export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false, userEmail = "" }) {
   const [release, setRelease] = useState(null);
   const [activities, setActivities] = useState([]);
   const [users, setUsers] = useState([]);
@@ -43,6 +48,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const [addOpen, setAddOpen] = useState(false);
   const [view, setView] = useState("kanban");
   const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
   const [githubError, setGithubError] = useState("");
   const [loading, setLoading] = useState(true);
   // anel de destaque no DAG: { id da activity editada, n incrementa a cada save }
@@ -58,6 +64,9 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const [renameName, setRenameName] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteDraftOpen, setDeleteDraftOpen] = useState(false);
+  // filtros facetados (#25): vivem só aqui; troca Kanban↔DAG preserva
+  const [filters, setFilters] = useState({ assignees: [], statuses: [], modes: [], areas: [] });
+  const [hideUnmatched, setHideUnmatched] = useState(false);
   // modo de edição explícito da execução: Edit habilita, Save finaliza
   const [editMode, setEditMode] = useState(false);
 
@@ -68,6 +77,27 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
   const completed = release?.status === "completed";
   // draft é sempre editável; em active/completed a edição é um modo explícito (Edit → Save)
   const canEdit = draft || ((inExecution || completed) && editMode);
+
+  // single source of match: só matchesFilters decide o que bate com o filtro
+  const filterActive = isFilterActive(filters);
+  const matchedIds = useMemo(() => {
+    const s = new Set();
+    if (!filterActive) return s;
+    for (const a of activities) if (matchesFilters(a, filters)) s.add(a.id);
+    return s;
+  }, [activities, filters, filterActive]);
+  const matchedCount = filterActive ? matchedIds.size : activities.length;
+  const playingNow = useMemo(() => {
+    // banner só para o assignee logado (email), não para qualquer playing na release
+    return (
+      activities.find((a) => {
+        if (!a.is_playing || !a.assignee?.email || !userEmail) return false;
+        return (
+          a.assignee.email.trim().toLowerCase() === userEmail.trim().toLowerCase()
+        );
+      }) || null
+    );
+  }, [activities, userEmail]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,10 +152,57 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
     }
   }, [activities, selected]);
 
+  // mantém o drawer alinhado após load/play/pause
+  useEffect(() => {
+    setSelected((prev) => {
+      if (!prev) return prev;
+      return activities.find((a) => a.id === prev.id) || prev;
+    });
+  }, [activities]);
+
   async function saveActivity(payload) {
     await api.patch(`/api/activities/${selected.id}/`, payload);
     setFlash((f) => ({ id: selected.id, n: (f?.n ?? 0) + 1 }));
     await load();
+  }
+
+  async function playActivity(activity) {
+    setError("");
+    try {
+      const data = await api.post(`/api/activities/${activity.id}/play/`, {});
+      const paused = data.paused_activities || [];
+      if (paused.length) {
+        const names = paused.map((p) => p.label).join(", ");
+        setToast(`Paused: ${names}`);
+      }
+      setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function pauseActivity(activity) {
+    setError("");
+    try {
+      await api.post(`/api/activities/${activity.id}/pause/`, {});
+      setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function recordEffort(activity, minutes) {
+    setError("");
+    try {
+      await api.post(`/api/activities/${activity.id}/effort/`, { minutes });
+      setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
+      await load();
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
   }
 
   async function deleteActivity(activity) {
@@ -492,6 +569,27 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
           Couldn't load GitHub repos, areas, or sizes ({githubError}). You can still type them.
         </Alert>
       )}
+      {playingNow && !draft && !readonly && (
+        <Alert
+          severity="success"
+          icon={<PlayArrowIcon fontSize="inherit" />}
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              startIcon={<PauseIcon />}
+              onClick={() => pauseActivity(playingNow)}
+            >
+              Pause
+            </Button>
+          }
+        >
+          You&apos;re on: <strong>{playingNow.label}</strong>
+          {formatEffort(playingNow.effort_seconds)
+            ? ` · ${formatEffort(playingNow.effort_seconds)}`
+            : ""}
+        </Alert>
+      )}
       {draft && (
         <Alert severity="info">
           This is a draft. Start the release when you're ready to begin.
@@ -515,14 +613,31 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
       {draft && !(release?.steps || []).length && (
         <Alert severity="info">Add a step to start this draft.</Alert>
       )}
+      <ActivityFilterBar
+        activities={activities}
+        filters={filters}
+        onChange={setFilters}
+        matched={matchedCount}
+        total={activities.length}
+        showHideToggle={view === "kanban"}
+        hideUnmatched={hideUnmatched}
+        onHideUnmatched={setHideUnmatched}
+      />
       {view === "kanban" ? (
         <StepBoard
           steps={release?.steps || []}
           activities={activities}
+          matchedIds={matchedIds}
+          filterActive={filterActive}
+          hideUnmatched={hideUnmatched}
           onSelect={selectActivity}
           editable={canEdit}
           onMoveActivity={moveActivityDir}
           onDuplicateActivity={duplicateActivity}
+          onPlay={!draft && !readonly ? playActivity : undefined}
+          onPause={!draft && !readonly ? pauseActivity : undefined}
+          isSuperuser={isSuperuser}
+          userEmail={userEmail}
           onEditStep={(step) => {
             setEditStep(step);
             setStepLabel(step.label);
@@ -537,9 +652,15 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
         <ActivityDagBoard
           steps={release?.steps || []}
           activities={activities}
+          matchedIds={matchedIds}
+          filterActive={filterActive}
           onSelect={selectActivity}
           selectedId={selected?.id ?? null}
           flash={flash}
+          onPlay={!draft && !readonly ? playActivity : undefined}
+          onPause={!draft && !readonly ? pauseActivity : undefined}
+          isSuperuser={isSuperuser}
+          userEmail={userEmail}
         />
       )}
       <ActivityDrawer
@@ -559,6 +680,11 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
         onDelete={deleteActivity}
         onDuplicate={duplicateActivity}
         onMove={moveActivity}
+        onPlay={playActivity}
+        onPause={pauseActivity}
+        onRecordEffort={recordEffort}
+        isSuperuser={isSuperuser}
+        userEmail={userEmail}
       />
       {canEdit && (
         <ActivityForm
@@ -713,6 +839,13 @@ export default function ReleaseBoard({ releaseSlug, isStaff }) {
           </Button>
         </DialogActions>
       </Dialog>
+      <Snackbar
+        open={Boolean(toast)}
+        autoHideDuration={4000}
+        onClose={() => setToast("")}
+        message={toast}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      />
     </Stack>
   );
 }

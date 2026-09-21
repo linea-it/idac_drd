@@ -26,6 +26,11 @@ export function edgeStyleFor(status, theme) {
       strokeWidth: 1.5,
       animated: false,
     },
+    waiting: {
+      stroke: theme.palette.divider,
+      strokeWidth: 1.5,
+      animated: false,
+    },
     blocked: {
       stroke: theme.palette.warning.main,
       strokeWidth: 1.5,

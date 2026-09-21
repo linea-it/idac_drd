@@ -86,8 +86,8 @@ test("New draft só aparece na página Drafts", async () => {
   expect(screen.queryByRole("button", { name: "New draft" })).not.toBeInTheDocument();
 });
 
-test("stepStatus: primeira atividade em progresso vira In Progress com 0% done", () => {
-  expect(stepStatus({ total: 2, done: 0, started: 0, pct: 0 })).toBe("todo");
+test("stepStatus: ainda não iniciado é Waiting; progresso vira In Progress", () => {
+  expect(stepStatus({ total: 2, done: 0, started: 0, pct: 0 })).toBe("waiting");
   expect(stepStatus({ total: 2, done: 0, started: 1, pct: 0 })).toBe("in progress");
   expect(stepStatus({ total: 2, done: 1, started: 1, pct: 50 })).toBe("in progress");
   expect(stepStatus({ total: 2, done: 2, started: 2, pct: 100 })).toBe("completed");

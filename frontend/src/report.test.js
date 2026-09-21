@@ -178,7 +178,7 @@ describe("buildReleaseReport", () => {
       (new Date("2026-08-20T12:00:00Z") - new Date("2026-08-16T10:00:00Z")) / 1000,
     );
     expect(md).toContain(expected);
-    expect(md).toContain("0 to do · 1 in progress · 0 in review");
+    expect(md).toContain("0 to do · 0 waiting · 1 in progress · 0 in review");
   });
 
   it("seção 5 inclui as text revisions por atividade (e o default não renderiza a subseção)", () => {
