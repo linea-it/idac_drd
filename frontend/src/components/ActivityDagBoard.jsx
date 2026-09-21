@@ -10,7 +10,7 @@ import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Stack, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { computeDagState } from "../dagState";
+import { computeDagState, DAG_VIEWPORT_VERSION } from "../dagState";
 import { edgeStyleFor } from "../edgeStyles";
 import ActivityFlowNode from "./ActivityFlowNode";
 import StepBandNode from "./StepBandNode";
@@ -51,10 +51,14 @@ function DagInner({ steps, activities, onSelect, selectedId, flash, matchedIds, 
   // seletores primitivos separados — objeto novo por snapshot causaria loop de render
   const width = useStore((s) => s.width);
   const height = useStore((s) => s.height);
-  // o zoom/posição do DAG persiste entre visualizações (troca de aba/página),
-  // por release — releases com steps diferentes fitam por altura na primeira vez
+  // viewport persiste por release; DAG_VIEWPORT_VERSION invalida caches após
+  // mudanças de layout/fit (altura do canvas, rows, pathOptions, …)
   const viewportKey = useMemo(
-    () => `idac_drd:dagViewport:${[...steps].map((l) => l.id).sort((a, b) => a - b).join(",")}`,
+    () =>
+      `idac_drd:dagViewport:v${DAG_VIEWPORT_VERSION}:${[...steps]
+        .map((l) => l.id)
+        .sort((a, b) => a - b)
+        .join(",")}`,
     [steps],
   );
   const { nodes, edges, graphWidth, graphHeight, graphX } = useMemo(

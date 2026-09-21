@@ -10,21 +10,37 @@ const STEP_LABEL_WIDTH = 180; // largura do rótulo à esquerda de cada faixa
 const STEP_LABEL_HEIGHT = 48; // altura real do rótulo
 const STEP_LABEL_X = -(STEP_LABEL_WIDTH + 24);
 const ROW_FIXPOINT_MAX = 20; // teto do fixpoint de corredores (monótono → converge muito antes)
+const SMOOTHSTEP_OFFSET = 20; // offset padrão do getSmoothStepPath do React Flow
 
-// Linhas (eixo y) de um step: cada activity ganha um row index INTEIRO — sem
-// centrar grupos isolados. Nós do mesmo nível dividem rows (paralelos espalham
-// na vertical); dependências alinhadas tentam ficar na MESMA row (aresta reta).
-// Aresta longa (gap de nível > 1): o smoothstep desenha o segmento horizontal
-// na row do source do handle até o meio do vão e na row do target do meio até o
-// handle — nos níveis intermediários essas rows ficam RESERVADAS (corredor) e
-// quem cair nelas é empurrado para a próxima livre (#28).
-//
-// Fixpoint monótono: corredores dependem das rows finais dos endpoints; se um
-// alvo sobe de row no passe seguinte, a reserva antiga fica stale. Acumulamos
-// reservas (só crescem) e recolocamos até estabilizar — rows só sobem, então
-// termina em ≤ N iterações.
+// Bump quando layout/fit mudam de semântica — invalida viewports antigos no sessionStorage.
+export const DAG_VIEWPORT_VERSION = 3;
+
+// depends_on pode vir undefined/null da API — nunca iterar cru.
+function depsOf(a) {
+  return Array.isArray(a?.depends_on) ? a.depends_on : [];
+}
+
+// Aresta longa (gap > 1): coloca o joelho vertical no VÃO entre a coluna do
+// source e a próxima — fora de qualquer card. O segmento longo fica na Y do
+// target (faixa do alvo), então arestas cross-step não atravessam steps do meio.
+// Retorna undefined para gap ≤ 1 (o default 0.5 do RF já cai no vão adjacente).
+export function longEdgeStepPosition(sourceLevel, targetLevel) {
+  const gap = targetLevel - sourceLevel;
+  if (gap <= 1) return undefined;
+  const sourceGapped = sourceLevel * LEVEL_WIDTH + CARD_WIDTH + SMOOTHSTEP_OFFSET;
+  const targetGapped = targetLevel * LEVEL_WIDTH - SMOOTHSTEP_OFFSET;
+  const span = targetGapped - sourceGapped;
+  if (span <= 0) return undefined;
+  const gapCenter = sourceLevel * LEVEL_WIDTH + CARD_WIDTH + (LEVEL_WIDTH - CARD_WIDTH) / 2;
+  const t = (gapCenter - sourceGapped) / span;
+  return Math.min(0.95, Math.max(0.02, t));
+}
+
+// Linhas (eixo y) de um step: cada activity ganha um row index INTEIRO.
+// Corredor: aresta longa reserva a row do ALVO nos níveis intermediários do
+// step do alvo (é onde o smoothstep desenha o segmento horizontal longo, com
+// o joelho no vão pós-source). Fixpoint monótono evita corredor stale.
 function assignStepRows(stepId, stepActs, levels, byId, activities) {
-  // níveis da esquerda para a direita; dentro do nível, por order/id (determinístico)
   const order = [...stepActs].sort(
     (a, b) =>
       levels.get(a.id) - levels.get(b.id) ||
@@ -33,13 +49,10 @@ function assignStepRows(stepId, stepActs, levels, byId, activities) {
   );
 
   const place = (reservedByLevel) => {
-    const rows = new Map(); // activity id -> row index
-    const occupied = new Map(); // nível -> Set de rows ocupadas naquele nível
-    // preferência de row: mediana inferior (barycenter) das rows dos pais JÁ
-    // POSICIONADOS no mesmo step; sem pais no step, 0 (faixas compartilham a
-    // mesma grade de rows, então cadeias entre steps seguem retas também)
+    const rows = new Map();
+    const occupied = new Map();
     const prefOf = (a) => {
-      const parentRows = a.depends_on
+      const parentRows = depsOf(a)
         .map((depId) => byId.get(depId))
         .filter((dep) => dep && dep.step === a.step && rows.has(dep.id))
         .map((dep) => rows.get(dep.id))
@@ -52,7 +65,7 @@ function assignStepRows(stepId, stepActs, levels, byId, activities) {
       const occ = occupied.get(level) ?? new Set();
       const reserved = reservedByLevel?.get(level);
       let row = prefOf(a);
-      while (occ.has(row) || reserved?.has(row)) row += 1; // ocupada/reservada → empurra
+      while (occ.has(row) || reserved?.has(row)) row += 1;
       rows.set(a.id, row);
       occ.add(row);
       occupied.set(level, occ);
@@ -60,9 +73,7 @@ function assignStepRows(stepId, stepActs, levels, byId, activities) {
     return rows;
   };
 
-  // corredores a partir das rows atuais: por aresta u←v (depends_on) com gap > 1,
-  // reserva a row de cada endpoint nos níveis intermediários DO STEP DO ENDPOINT.
-  // Com gap PAR o segmento vertical cai na coluna do meio — reserva o intervalo.
+  // só a row do alvo (u): o segmento longo do smoothstep roda na Y do target
   const corridorsFrom = (rows) => {
     const reserved = new Map();
     const addRes = (level, row) => {
@@ -70,32 +81,21 @@ function assignStepRows(stepId, stepActs, levels, byId, activities) {
       reserved.get(level).add(row);
     };
     for (const u of activities) {
-      for (const depId of u.depends_on) {
+      if (u.step !== stepId) continue;
+      const ru = rows.get(u.id);
+      if (ru == null) continue;
+      const lu = levels.get(u.id);
+      for (const depId of depsOf(u)) {
         const v = byId.get(depId);
         if (!v) continue;
-        const lu = levels.get(u.id);
         const lv = levels.get(v.id);
-        const gap = lu - lv;
-        if (gap <= 1) continue;
-        const ru = u.step === stepId ? rows.get(u.id) : null;
-        const rv = v.step === stepId ? rows.get(v.id) : null;
-        if (ru == null && rv == null) continue;
-        for (let level = lv + 1; level < lu; level++) {
-          if (rv != null) addRes(level, rv);
-          if (ru != null) addRes(level, ru);
-        }
-        if (ru != null && rv != null && gap % 2 === 0) {
-          const mid = lv + gap / 2;
-          const lo = Math.min(ru, rv);
-          const hi = Math.max(ru, rv);
-          for (let row = lo; row <= hi; row++) addRes(mid, row);
-        }
+        if (lu - lv <= 1) continue;
+        for (let level = lv + 1; level < lu; level++) addRes(level, ru);
       }
     }
     return reserved;
   };
 
-  // fixpoint: reservas acumuladas (monótonas) + rows só sobem → converge
   const reserved = new Map();
   let rows = place(null);
   for (let iter = 0; iter < ROW_FIXPOINT_MAX; iter++) {
@@ -125,21 +125,39 @@ function assignStepRows(stepId, stepActs, levels, byId, activities) {
   return rows;
 }
 
-// Layout por nível topológico HORIZONTAL: x = profundidade de dependências (toda
-// aresta aponta para a direita por construção — sem loops nem setas "para trás"),
-// y = step (faixas horizontais, como no Kanban). Cada faixa tem um rótulo à
-// esquerda, fundo zebrado e os nós distribuídos em rows; a altura da faixa
-// cresce com o paralelismo do step.
-export function computeDagState(activities, steps) {
+// Steps conhecidos + órfãos (activity.step fora da lista) — órfãos ganham faixa
+// residual no fim para permanecerem clicáveis (y finito), sem derrubar o layout.
+function layoutStepsFor(activities, steps) {
   const stepOrder = [...steps].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const known = new Set(stepOrder.map((s) => s.id));
+  const orphanIds = [];
+  for (const a of activities) {
+    if (a.step != null && !known.has(a.step) && !orphanIds.includes(a.step)) {
+      orphanIds.push(a.step);
+    }
+  }
+  return [
+    ...stepOrder,
+    ...orphanIds.map((id) => ({
+      id,
+      label: `Unknown step (${id})`,
+      order: Number.MAX_SAFE_INTEGER,
+      color: "#757575",
+    })),
+  ];
+}
+
+// Layout por nível topológico HORIZONTAL: x = profundidade de dependências,
+// y = step (faixas). Cada faixa cresce com o paralelismo do step.
+export function computeDagState(activities, steps) {
+  const layoutSteps = layoutStepsFor(activities, steps);
   const byId = new Map(activities.map((a) => [a.id, a]));
 
-  // nível topológico: profundidade máxima de deps (é o x do layout e o delay do reveal)
   const levels = new Map();
   const levelOf = (a) => {
     if (levels.has(a.id)) return levels.get(a.id);
     let lvl = 0;
-    for (const depId of a.depends_on) {
+    for (const depId of depsOf(a)) {
       const dep = byId.get(depId);
       if (dep) lvl = Math.max(lvl, levelOf(dep) + 1);
     }
@@ -147,20 +165,17 @@ export function computeDagState(activities, steps) {
     return lvl;
   };
   activities.forEach(levelOf);
-  const maxLevel = Math.max(0, ...activities.map((a) => levels.get(a.id)));
+  const maxLevel = activities.length ? Math.max(0, ...activities.map((a) => levels.get(a.id))) : 0;
 
-  // y por step: faixas empilhadas. Altura = padding + cards + corredores entre
-  // rows + padding — sem o corredor "fantasma" após o último card (antes a
-  // fórmula (maxRow+1)*NODE_GAP deixava a faixa assimétrica e inchada com 1 card)
   const stepTop = new Map();
   const stepHeight = new Map();
   const yOf = new Map();
   let y = 0;
-  for (const step of stepOrder) {
+  for (const step of layoutSteps) {
     stepTop.set(step.id, y);
     const stepActs = activities.filter((a) => a.step === step.id);
     const rows = assignStepRows(step.id, stepActs, levels, byId, activities);
-    const maxRow = Math.max(0, ...rows.values());
+    const maxRow = rows.size ? Math.max(0, ...rows.values()) : 0;
     const height = 2 * PADDING + CARD_HEIGHT + maxRow * NODE_GAP;
     stepHeight.set(step.id, height);
     rows.forEach((row, id) => yOf.set(id, y + PADDING + row * NODE_GAP));
@@ -168,15 +183,12 @@ export function computeDagState(activities, steps) {
   }
 
   const graphWidth = (maxLevel + 1) * LEVEL_WIDTH;
-  // dimensões totais do grafo (usadas para o fit-height na abertura do board)
-  const graphHeight = y; // soma das alturas de todas as faixas
+  const graphHeight = y || 2 * PADDING + CARD_HEIGHT;
 
-  const stepColor = new Map(stepOrder.map((l) => [l.id, l.color || "#000099"]));
+  const stepColor = new Map(layoutSteps.map((l) => [l.id, l.color || "#000099"]));
 
   const nodes = [
-    // banda de cada faixa: largura total do grafo, fundo zebrado (visível em
-    // qualquer zoom) — a altura acompanha o paralelismo do step
-    ...stepOrder.map((l, idx) => ({
+    ...layoutSteps.map((l, idx) => ({
       id: `band-${l.id}`,
       type: "stepBand",
       selectable: false,
@@ -197,7 +209,7 @@ export function computeDagState(activities, steps) {
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
     })),
-    ...stepOrder.map((l) => {
+    ...layoutSteps.map((l) => {
       const stepActs = activities.filter((a) => a.step === l.id);
       return {
         id: `step-${l.id}`,
@@ -218,13 +230,20 @@ export function computeDagState(activities, steps) {
   ];
 
   const edges = activities.flatMap((a) =>
-    a.depends_on.map((depId) => ({
-      id: `${depId}->${a.id}`,
-      source: String(depId),
-      target: String(a.id),
-      // a aresta é pintada pelo status EFETIVO do alvo (o dependente) — ver edgeStyles.js
-      targetStatus: displayStatus(a),
-    })),
+    depsOf(a).flatMap((depId) => {
+      if (!byId.has(depId)) return []; // dep fantasma: não cria aresta quebrada
+      const sourceLevel = levels.get(depId);
+      const targetLevel = levels.get(a.id);
+      const edge = {
+        id: `${depId}->${a.id}`,
+        source: String(depId),
+        target: String(a.id),
+        targetStatus: displayStatus(a),
+      };
+      const stepPosition = longEdgeStepPosition(sourceLevel, targetLevel);
+      if (stepPosition != null) edge.pathOptions = { stepPosition };
+      return [edge];
+    }),
   );
 
   return { nodes, edges, graphWidth, graphHeight, graphX: STEP_LABEL_X };
