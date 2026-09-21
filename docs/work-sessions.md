@@ -39,7 +39,7 @@ API: `POST /api/activities/{id}/play/` e `POST /api/activities/{id}/pause/`
 | `assignee` | snapshot do `ExternalIdentity` no play (não segue mudança futura) |
 | `started_at` | início do intervalo |
 | `ended_at` | `NULL` = sessão aberta (playing) |
-| `end_reason` | `pause`, `play_switch`, `review`, `blocked`, `done`, `reassign`, `admin` |
+| `end_reason` | `pause`, `play_switch`, `review`, `blocked`, `done`, `reassign`, `admin`, `manual` |
 | `actor` | usuário logado que abriu/fechou (opcional) |
 
 Constraints (PostgreSQL):
@@ -59,13 +59,25 @@ Migration: `workflow.0008_activityworksession`.
 | Play em `in_progress` pausada | permanece | abre sessão |
 | Play noutra activity do mesmo assignee | outra → `in_progress` se estava `todo` | fecha a anterior (`play_switch`); abre na nova |
 | Pause | permanece `in_progress` | fecha (`pause`) |
-| → `in_review` / `blocked` / `done` / volta a `todo` | transição normal | fecha sessão aberta |
+| Status → `in_progress` (sem Play) | transição | **não** abre sessão — Play (ou effort manual) grava FTE |
+| Effort manual (`POST …/effort/`) | permanece `in_progress` | cria sessão **fechada** (`manual`) — só se ainda não há nenhuma |
+| → `in_review` | só de `in_progress` **e** com ≥1 sessão (effort > 0 ou sessão aberta/fechada) | fecha sessão aberta (`review`) |
+| → `blocked` / `done` / volta a `todo` | transição normal | fecha sessão aberta |
 | Rejeição `in_review` → `in_progress` | volta | **não** abre sozinho — exige Play |
-| PATCH status → `in_progress` | transição | abre sessão **só** se o ator pode controlar o timer |
 | Troca / remoção de assignee | — | fecha (`reassign`) |
 
 Play sem assignee → erro. Play sem permissão → erro
-("Only the assignee or a superuser…").
+("Only the assignee or a superuser…"). Enviar a review sem effort → erro
+("Record effort with Play or add it manually…").
+
+### Effort manual (esqueceu o Play)
+
+`POST /api/activities/{id}/effort/` com `{"minutes": 45}`.
+
+Só vale quando **ainda não há sessão** nesta activity: mesma permissão do
+Play, status `in_progress`, assignee definido, `minutes` ∈ (0, 1440].
+Cria uma sessão fechada com `end_reason=manual` (intervalo `[now−minutes, now]`).
+No drawer: campo Minutes + "Add effort" quando In progress sem effort.
 
 ## 4. API
 

@@ -70,6 +70,7 @@ export default function ActivityDrawer({
   onMove,
   onPlay,
   onPause,
+  onRecordEffort,
   isSuperuser = false,
   userEmail = "",
 }) {
@@ -87,6 +88,8 @@ export default function ActivityDrawer({
   const [size, setSize] = useState("");
   const [stepId, setStepId] = useState("");
   const [dependsOnIds, setDependsOnIds] = useState([]);
+  const [manualMinutes, setManualMinutes] = useState("");
+  const [showManualEffort, setShowManualEffort] = useState(false);
   const [resources, setResources] = useState([]);
   const [moveStepId, setMoveStepId] = useState("");
   const [afterId, setAfterId] = useState("");
@@ -129,6 +132,8 @@ export default function ActivityDrawer({
     setNotes(activity.notes || "");
     setBlockedReason(activity.blocked_reason || "");
     setRejectReason("");
+    setManualMinutes("");
+    setShowManualEffort(false);
     setLabel(activity.label);
     setDescription(activity.description || "");
     // colchetes são formato de persistência (tickets): o dashboard mostra o
@@ -242,6 +247,21 @@ export default function ActivityDrawer({
     }
   }
 
+  async function submitManualEffort() {
+    if (!manualMinutes || Number(manualMinutes) <= 0) return;
+    setError("");
+    setSaving(true);
+    try {
+      await onRecordEffort(activity, Number(manualMinutes));
+      setManualMinutes("");
+      setShowManualEffort(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleMove() {
     setError("");
     try {
@@ -314,7 +334,7 @@ export default function ActivityDrawer({
                   (status === "todo" || status === "in_progress") &&
                   activity.prerequisites_met !== false &&
                   displayStatus(activity) !== "waiting" && (
-                    <Stack direction="row" spacing={1} alignItems="center">
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%" }}>
                       {activity.is_playing ? (
                         <Button
                           variant="outlined"
@@ -354,12 +374,90 @@ export default function ActivityDrawer({
                           Play
                         </Button>
                       )}
-                      {formatEffort(activity.effort_seconds) && (
+                      {activity.effort_seconds > 0 && formatEffort(activity.effort_seconds) ? (
                         <Typography variant="body2" color="text.secondary">
                           {activity.is_playing ? "In Progress · " : "Effort · "}
                           {formatEffort(activity.effort_seconds)}
                         </Typography>
+                      ) : (
+                        showManualEffort &&
+                        status === "in_progress" &&
+                        activity.status === "in_progress" &&
+                        !activity.is_playing &&
+                        onRecordEffort && (
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ ml: "auto" }}>
+                            <TextField
+                              size="small"
+                              type="number"
+                              label="Minutes"
+                              value={manualMinutes}
+                              onChange={(e) => setManualMinutes(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Escape") {
+                                  setShowManualEffort(false);
+                                  setManualMinutes("");
+                                  return;
+                                }
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  submitManualEffort();
+                                }
+                              }}
+                              inputProps={{ min: 1, step: 1, max: 24 * 60 }}
+                              sx={{ width: 120 }}
+                              autoFocus
+                            />
+                            <Button
+                              size="small"
+                              variant="text"
+                              disabled={saving || !manualMinutes || Number(manualMinutes) <= 0}
+                              aria-label="Save effort"
+                              onClick={submitManualEffort}
+                              sx={{ textTransform: "none", minWidth: 0 }}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="text"
+                              color="inherit"
+                              disabled={saving}
+                              aria-label="Cancel effort"
+                              onClick={() => {
+                                setShowManualEffort(false);
+                                setManualMinutes("");
+                              }}
+                              sx={{ color: "text.secondary", textTransform: "none", minWidth: 0, px: 0.5 }}
+                            >
+                              Cancel
+                            </Button>
+                          </Stack>
+                        )
                       )}
+                      {!showManualEffort &&
+                        status === "in_progress" &&
+                        activity.status === "in_progress" &&
+                        !activity.is_playing &&
+                        !(activity.effort_seconds > 0) &&
+                        onRecordEffort && (
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="inherit"
+                            sx={{
+                              ml: "auto",
+                              color: "text.secondary",
+                              textTransform: "none",
+                              fontWeight: 400,
+                              minWidth: 0,
+                              px: 0.5,
+                            }}
+                            disabled={saving}
+                            onClick={() => setShowManualEffort(true)}
+                          >
+                            Add Effort
+                          </Button>
+                        )}
                     </Stack>
                   )}
                 {!readonly &&
@@ -382,13 +480,22 @@ export default function ActivityDrawer({
                     </Stack>
                   )}
                 {!readonly && !draft && status === "in_progress" && activity.status === "in_progress" && (
-                  <Button
-                    variant="contained"
-                    onClick={() => handleTransition("in_review")}
-                    disabled={saving}
-                  >
-                    Finish and send to review
-                  </Button>
+                  <Stack spacing={0.5}>
+                    <Button
+                      variant="contained"
+                      onClick={() => handleTransition("in_review")}
+                      disabled={
+                        saving || !(activity.is_playing || (activity.effort_seconds ?? 0) > 0)
+                      }
+                    >
+                      Finish and send to review
+                    </Button>
+                    {!(activity.is_playing || (activity.effort_seconds ?? 0) > 0) && (
+                      <Typography variant="caption" color="text.secondary">
+                        No effort yet — use Play or Add Effort first
+                      </Typography>
+                    )}
+                  </Stack>
                 )}
                 <FormControl fullWidth size="small" disabled={readonly}>
                   <InputLabel>Assignee</InputLabel>

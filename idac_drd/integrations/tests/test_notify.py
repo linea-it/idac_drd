@@ -17,6 +17,7 @@ from idac_drd.integrations import notify
 from idac_drd.users.models import ExternalIdentity
 from idac_drd.workflow.models import Activity, DataRelease, ReleaseStep
 from idac_drd.workflow.services import _block_until_prerequisites, add_activity, start_release, transition_activity
+from idac_drd.workflow.tests.helpers import prime_effort
 
 SITE = "https://example.test"
 
@@ -660,6 +661,7 @@ def test_on_commit_notifies_ready_on_auto_unblock(monkeypatch):
     assert a2.status == Activity.Status.BLOCKED
     try:
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None)
+        prime_effort(a1, None)
         transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         transition_activity(a1, to_status=Activity.Status.DONE, actor=None)
         assert len(ready_calls) == 1
@@ -733,6 +735,7 @@ def test_on_commit_notifies_after_review_and_rejection(monkeypatch):
     try:
         start_release(release)
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None)
+        prime_effort(a1, None)
         transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         assert len(review_calls) == 1
         assert review_calls[0].key == "a1"
@@ -742,6 +745,7 @@ def test_on_commit_notifies_after_review_and_rejection(monkeypatch):
         assert rejection_calls[0][0].key == "a1"
         assert rejection_calls[0][1] == "fix"
         # novo in_review notifica de novo
+        prime_effort(a1, None)
         transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         assert len(review_calls) == 2
     finally:
@@ -810,10 +814,12 @@ def test_on_commit_notifies_complete_when_last_approved(monkeypatch):
     a2 = Activity.objects.create(release=release, step=step, key="a2", label="A2", order=1)
     try:
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None)
+        prime_effort(a1, None)
         transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         transition_activity(a1, to_status=Activity.Status.DONE, actor=None)
         assert calls == []  # a2 ainda pendente: release continua ativa
         transition_activity(a2, to_status=Activity.Status.IN_PROGRESS, actor=None)
+        prime_effort(a2, None)
         transition_activity(a2, to_status=Activity.Status.IN_REVIEW, actor=None)
         transition_activity(a2, to_status=Activity.Status.DONE, actor=None)
         assert len(calls) == 1

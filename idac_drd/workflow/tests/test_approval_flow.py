@@ -17,7 +17,7 @@ from idac_drd.workflow.services import (
     create_draft,
     transition_activity,
 )
-from idac_drd.workflow.tests.helpers import make_release
+from idac_drd.workflow.tests.helpers import make_release, prime_effort
 
 User = get_user_model()
 
@@ -53,6 +53,7 @@ def admin(db):
 
 def send_to_review(activity, actor):
     transition_activity(activity, to_status=Activity.Status.IN_PROGRESS, actor=actor)
+    prime_effort(activity, actor)
     transition_activity(activity, to_status=Activity.Status.IN_REVIEW, actor=actor)
 
 
@@ -169,6 +170,7 @@ def test_api_full_approval_cycle(approval_release, alice, bob):
         alice_client.patch(f"/api/activities/{a1.id}/", {"status": "in_progress", "notes": "trabalhando"}).status_code
         == 200
     )
+    prime_effort(a1, alice)
     assert alice_client.patch(f"/api/activities/{a1.id}/", {"status": "in_review"}).status_code == 200
 
     # done direto de in_progress → 400 (gate de origem)
@@ -186,6 +188,7 @@ def test_api_rejection_requires_comment(approval_release, alice):
     a1 = approval_release.activities.get(key="a1")
     client = _client_for(alice)
     client.patch(f"/api/activities/{a1.id}/", {"status": "in_progress"})
+    prime_effort(a1, alice)
     client.patch(f"/api/activities/{a1.id}/", {"status": "in_review"})
 
     assert client.patch(f"/api/activities/{a1.id}/", {"status": "in_progress"}).status_code == 400

@@ -193,6 +193,18 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
     }
   }
 
+  async function recordEffort(activity, minutes) {
+    setError("");
+    try {
+      await api.post(`/api/activities/${activity.id}/effort/`, { minutes });
+      setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
+      await load();
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  }
+
   async function deleteActivity(activity) {
     await api.del(`/api/activities/${activity.id}/`);
     closeDrawer();
@@ -670,6 +682,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
         onMove={moveActivity}
         onPlay={playActivity}
         onPause={pauseActivity}
+        onRecordEffort={recordEffort}
         isSuperuser={isSuperuser}
         userEmail={userEmail}
       />

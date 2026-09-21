@@ -204,6 +204,7 @@ class ActivityWorkSession(models.Model):
         DONE = "done", "Done"
         REASSIGN = "reassign", "Assignee changed"
         ADMIN = "admin", "Admin"
+        MANUAL = "manual", "Manual entry"
 
     activity = models.ForeignKey(Activity, related_name="work_sessions", on_delete=models.CASCADE)
     assignee = models.ForeignKey(

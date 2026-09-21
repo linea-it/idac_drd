@@ -169,12 +169,15 @@ def test_rejection_does_not_auto_open_session(release, user, identity):
 
 
 @pytest.mark.django_db
-def test_status_in_progress_opens_session(release, user, identity):
+def test_status_in_progress_does_not_open_session(release, user, identity):
+    """Status → in_progress nunca abre sessão; Play é a única porta do timer."""
     a1 = release.activities.get(key="step-1")
     a1.assignee = identity
     a1.save(update_fields=["assignee"])
     transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user)
-    assert ActivityWorkSession.objects.filter(activity=a1, ended_at__isnull=True).count() == 1
+    assert ActivityWorkSession.objects.filter(activity=a1).count() == 0
+    with pytest.raises(WorkflowError, match="Record effort with Play"):
+        transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
 
 
 @pytest.mark.django_db
@@ -251,3 +254,44 @@ def test_effort_sums_sessions(release, identity):
     )
     effort = activity_effort_seconds(a1, now=now)
     assert abs(effort - 80) < 1
+
+
+@pytest.mark.django_db
+def test_record_manual_effort(release, user, identity):
+    from idac_drd.workflow.services import record_manual_effort
+
+    a1 = release.activities.get(key="step-1")
+    a1.assignee = identity
+    a1.save(update_fields=["assignee"])
+    transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user)
+
+    record_manual_effort(a1, minutes=30, actor=user)
+    a1.refresh_from_db()
+    assert abs(activity_effort_seconds(a1) - 1800) < 2
+    session = ActivityWorkSession.objects.get(activity=a1)
+    assert session.end_reason == ActivityWorkSession.EndReason.MANUAL
+    assert session.ended_at is not None
+
+    with pytest.raises(WorkflowError, match="already recorded"):
+        record_manual_effort(a1, minutes=10, actor=user)
+
+    transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
+    assert a1.status == Activity.Status.IN_REVIEW
+
+
+@pytest.mark.django_db
+def test_api_record_manual_effort(release, user, identity):
+    a1 = release.activities.get(key="step-1")
+    a1.assignee = identity
+    a1.save(update_fields=["assignee"])
+    client = APIClient()
+    client.force_authenticate(user=user)
+    client.patch(f"/api/activities/{a1.id}/", {"status": "in_progress"}, format="json")
+
+    res = client.post(f"/api/activities/{a1.id}/effort/", {"minutes": 45}, format="json")
+    assert res.status_code == 200
+    assert abs(res.data["effort_seconds"] - 2700) < 2
+    assert res.data["is_playing"] is False
+
+    res = client.post(f"/api/activities/{a1.id}/effort/", {"minutes": 5}, format="json")
+    assert res.status_code == 400

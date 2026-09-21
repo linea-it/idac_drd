@@ -5,7 +5,12 @@ para montar estruturas de teste — hoje os templates não existem mais e o
 caminho canônico é ``create_draft`` + ``add_step_to_release`` + ``add_activity``.
 """
 
-from idac_drd.workflow.models import DataRelease
+from datetime import timedelta
+
+from django.utils import timezone
+
+from idac_drd.users.models import ExternalIdentity
+from idac_drd.workflow.models import Activity, ActivityWorkSession, DataRelease
 from idac_drd.workflow.services import add_activity, add_step_to_release, create_draft, start_release
 
 #: estrutura de referência: 2 steps, cada um com 1 activity
@@ -17,6 +22,30 @@ DEFAULT_ACTIVITIES = [
     {"key": "step-1", "label": "Step 1", "step": "a", "depends_on": []},
     {"key": "step-2", "label": "Step 2", "step": "a", "depends_on": ["step-1"]},
 ]
+
+
+def prime_effort(activity, actor=None):
+    """Garante ≥1 sessão fechada — gate de in_review (Play é a porta real em produção)."""
+    assignee = activity.assignee
+    if assignee is None:
+        assignee, _ = ExternalIdentity.objects.get_or_create(
+            email=f"effort-act-{activity.pk}@test.local",
+            defaults={"name": "Effort Fixture"},
+        )
+        Activity.objects.filter(pk=activity.pk).update(assignee=assignee)
+        activity.assignee_id = assignee.id
+    if activity.work_sessions.exists():
+        return activity
+    now = timezone.now()
+    ActivityWorkSession.objects.create(
+        activity=activity,
+        assignee=assignee,
+        started_at=now - timedelta(seconds=5),
+        ended_at=now,
+        end_reason=ActivityWorkSession.EndReason.PAUSE,
+        actor=actor if getattr(actor, "pk", None) else None,
+    )
+    return activity
 
 
 def make_release(name, *, slug=None, status="active", steps=DEFAULT_STEPS, activities=DEFAULT_ACTIVITIES):

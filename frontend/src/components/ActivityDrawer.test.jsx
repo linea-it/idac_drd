@@ -174,15 +174,16 @@ test("em in_review os objetivos aparecem como checklist e o Approve exige todos"
 
 test("em execução o status vira ação: Send to review em in_progress", async () => {
   const onSave = vi.fn().mockResolvedValue(undefined);
+  const withEffort = { ...activity, effort_seconds: 12 };
   const view = render(
     <ActivityDrawer
       open
-      activity={activity}
+      activity={withEffort}
       releaseSlug="r1"
       users={[]}
       githubOptions={{}}
       steps={[{ id: 1, label: "Step A" }]}
-      activities={[activity]}
+      activities={[withEffort]}
       readonly={false}
       draft={false}
       onClose={() => {}}
@@ -194,9 +195,56 @@ test("em execução o status vira ação: Send to review em in_progress", async 
 
   // em in_progress: botão de entrega, sem Approve
   const sendButton = screen.getByRole("button", { name: "Finish and send to review" });
+  expect(sendButton).toHaveProperty("disabled", false);
   expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   fireEvent.click(sendButton);
   await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ status: "in_review" })));
+  view.unmount();
+});
+
+test("Send to review fica desabilitado sem effort nem play", () => {
+  const withAssignee = {
+    ...activity,
+    effort_seconds: 0,
+    is_playing: false,
+    assignee: { id: 1, email: "alice@linea.org.br", name: "Alice" },
+  };
+  const view = render(
+    <ActivityDrawer
+      open
+      activity={withAssignee}
+      releaseSlug="r1"
+      users={[withAssignee.assignee]}
+      githubOptions={{}}
+      steps={[{ id: 1, label: "Step A" }]}
+      activities={[withAssignee]}
+      readonly={false}
+      draft={false}
+      onClose={() => {}}
+      onSave={() => {}}
+      onDelete={() => {}}
+      onMove={() => {}}
+      onPlay={() => {}}
+      onRecordEffort={() => {}}
+      userEmail="alice@linea.org.br"
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Finish and send to review" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(
+    screen.getByText("No effort yet — use Play or Add Effort first"),
+  ).toBeInTheDocument();
+  expect(screen.queryByLabelText("Minutes")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Add Effort" }));
+  expect(screen.getByLabelText("Minutes")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save effort" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Cancel effort" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Add Effort" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel effort" }));
+  expect(screen.queryByLabelText("Minutes")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add Effort" })).toBeInTheDocument();
   view.unmount();
 });
 

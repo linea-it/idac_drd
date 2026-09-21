@@ -53,6 +53,7 @@ from idac_drd.workflow.services import (
     move_activity,
     pause_activity,
     play_activity,
+    record_manual_effort,
     reorder_release_step,
     start_release,
     transition_activity,
@@ -401,6 +402,17 @@ class ActivityViewSet(
         activity = self.get_object()
         try:
             pause_activity(activity, actor=request.user)
+        except WorkflowError as exc:
+            raise ValidationError(str(exc)) from exc
+        activity.refresh_from_db()
+        return Response(ActivitySerializer(activity).data)
+
+    @action(detail=True, methods=["post"], url_path="effort")
+    def effort(self, request, pk=None):
+        """Registra minutos de effort manualmente (esqueceu o Play; só se ainda não há sessão)."""
+        activity = self.get_object()
+        try:
+            record_manual_effort(activity, minutes=request.data.get("minutes"), actor=request.user)
         except WorkflowError as exc:
             raise ValidationError(str(exc)) from exc
         activity.refresh_from_db()

@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import timedelta
 
 from django.db import transaction
 from django.db.models import F, Max
@@ -126,7 +127,7 @@ def play_activity(activity: Activity, *, actor=None) -> tuple[Activity, list[Act
 
     with transaction.atomic():
         if activity.status == Activity.Status.TODO:
-            transition_activity(activity, to_status=Activity.Status.IN_PROGRESS, actor=actor, open_session=False)
+            transition_activity(activity, to_status=Activity.Status.IN_PROGRESS, actor=actor)
             activity.refresh_from_db()
         _, paused = open_work_session(activity, actor=actor)
     return activity, paused
@@ -142,6 +143,45 @@ def pause_activity(activity: Activity, *, actor=None) -> Activity:
     if activity.status != Activity.Status.IN_PROGRESS:
         raise WorkflowError("Pause only while In progress.")
     close_open_session_for_activity(activity, reason=ActivityWorkSession.EndReason.PAUSE, actor=actor)
+    return activity
+
+
+# teto anti-typo: 24h (esqueceu o Play, não um sprint inteiro de uma vez)
+_MAX_MANUAL_EFFORT_MINUTES = 24 * 60
+
+
+def record_manual_effort(activity: Activity, *, minutes: float, actor=None) -> Activity:
+    """Registra effort fechado quando a pessoa esqueceu o Play (só se ainda não há sessão)."""
+    _assert_mutable(activity.release)
+    if activity.release.status == DataRelease.Status.DRAFT:
+        raise WorkflowError("Start the release before changing activity status.")
+    if not activity.assignee_id:
+        raise WorkflowError("Assign someone before recording effort.")
+    if not can_control_timer(activity, actor):
+        raise WorkflowError("Only the assignee or a superuser can record effort.")
+    if activity.status != Activity.Status.IN_PROGRESS:
+        raise WorkflowError("Record manual effort only while In progress.")
+    if activity.work_sessions.exists():
+        raise WorkflowError("Effort already recorded — use Play/Pause to add more time.")
+    try:
+        minutes = float(minutes)
+    except (TypeError, ValueError) as exc:
+        raise WorkflowError("Minutes must be a number.") from exc
+    if minutes <= 0:
+        raise WorkflowError("Minutes must be greater than zero.")
+    if minutes > _MAX_MANUAL_EFFORT_MINUTES:
+        raise WorkflowError(f"Minutes cannot exceed {_MAX_MANUAL_EFFORT_MINUTES} (24h).")
+
+    now = timezone.now()
+    seconds = minutes * 60
+    ActivityWorkSession.objects.create(
+        activity=activity,
+        assignee_id=activity.assignee_id,
+        started_at=now - timedelta(seconds=seconds),
+        ended_at=now,
+        end_reason=ActivityWorkSession.EndReason.MANUAL,
+        actor=actor if getattr(actor, "pk", None) else None,
+    )
     return activity
 
 
@@ -362,7 +402,6 @@ def transition_activity(
     to_status: str,
     actor=None,
     comment: str = "",
-    open_session: bool = True,
 ) -> Activity:
     _assert_mutable(activity.release)
     if activity.release.status == DataRelease.Status.DRAFT:
@@ -389,6 +428,9 @@ def transition_activity(
     if to_status == Activity.Status.IN_REVIEW:
         if from_status != Activity.Status.IN_PROGRESS:
             raise WorkflowError("Send to review only from In progress.")
+        # FTE: só Play abre sessão; review exige pelo menos uma sessão registrada
+        if not activity.work_sessions.exists():
+            raise WorkflowError("Record effort with Play or add it manually before sending to review.")
     elif to_status == Activity.Status.DONE:
         # done = aprovação: só de in_review; qualquer pessoa autenticada (ou sistema)
         if from_status != Activity.Status.IN_REVIEW:
@@ -419,7 +461,7 @@ def transition_activity(
         comment=comment,
     )
 
-    # timer: sair de execução fecha; entrar em in_progress abre (exceto rejeição)
+    # timer: só Play abre sessão; sair de execução fecha a aberta
     if to_status == Activity.Status.IN_REVIEW:
         close_open_session_for_activity(activity, reason=ActivityWorkSession.EndReason.REVIEW, actor=actor)
     elif to_status == Activity.Status.BLOCKED:
@@ -428,12 +470,6 @@ def transition_activity(
         close_open_session_for_activity(activity, reason=ActivityWorkSession.EndReason.DONE, actor=actor)
     elif to_status == Activity.Status.TODO:
         close_open_session_for_activity(activity, reason=ActivityWorkSession.EndReason.PAUSE, actor=actor)
-    elif to_status == Activity.Status.IN_PROGRESS:
-        # rejeição in_review→in_progress: não abre sozinho (exige Play)
-        # sessão só se o ator for o assignee ou superuser (FTE do assignee)
-        should_open = open_session and from_status != Activity.Status.IN_REVIEW
-        if should_open and can_control_timer(activity, actor):
-            open_work_session(activity, actor=actor)
 
     if to_status == Activity.Status.DONE:
         _unblock_ready_dependents(activity)
