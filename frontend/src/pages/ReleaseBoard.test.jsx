@@ -431,7 +431,7 @@ test("Hide unmatched remove cards e esconde colunas vazias no Kanban", async () 
   fireEvent.mouseDown(screen.getByRole("combobox", { name: "Status" }));
   fireEvent.click(await screen.findByRole("option", { name: "To do" }));
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "Hide unmatched" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Hide Unmatched" }));
   expect(screen.getByText("First")).toBeInTheDocument();
   expect(screen.queryByText("Second")).not.toBeInTheDocument();
   // coluna com match permanece (contador da lista completa); coluna vazia some
@@ -443,6 +443,6 @@ test("Hide unmatched remove cards e esconde colunas vazias no Kanban", async () 
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
   expect(screen.getByText("Second")).toBeInTheDocument();
   expect(screen.getByText("Step B")).toBeInTheDocument();
-  expect(screen.getByRole("checkbox", { name: "Hide unmatched" })).toBeDisabled();
-  expect(screen.getByRole("checkbox", { name: "Hide unmatched" })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Hide Unmatched" })).toBeDisabled();
+  expect(screen.getByRole("checkbox", { name: "Hide Unmatched" })).not.toBeChecked();
 });
