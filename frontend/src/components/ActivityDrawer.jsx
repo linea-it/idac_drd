@@ -40,8 +40,8 @@ import {
 } from "../timerUi";
 import DependsOnField from "./DependsOnField";
 
-// estados operacionais que o executor escolhe; a entrega (review) e a
-// conclusão (done) são ações explícitas, não opções do select
+// estados operacionais que o executor escolhe; a conclusão (done) é ação
+// explícita. in_review só aparece se ainda houver linha legada.
 const STATUS_OPTIONS = [
   { value: "todo", label: "To do" },
   { value: "in_progress", label: "In progress" },
@@ -79,7 +79,6 @@ export default function ActivityDrawer({
   const [assigneeId, setAssigneeId] = useState("");
   const [notes, setNotes] = useState("");
   const [blockedReason, setBlockedReason] = useState("");
-  const [rejectReason, setRejectReason] = useState("");
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
   const [objectives, setObjectives] = useState("");
@@ -131,7 +130,6 @@ export default function ActivityDrawer({
     setAssigneeId(activity.assignee?.id || "");
     setNotes(activity.notes || "");
     setBlockedReason(activity.blocked_reason || "");
-    setRejectReason("");
     setManualMinutes("");
     setShowManualEffort(false);
     setLabel(activity.label);
@@ -146,7 +144,13 @@ export default function ActivityDrawer({
       .map((l) => l.trim())
       .filter(Boolean);
     setCheckedObjectives(
-      savedLines.map((l, i) => (l.toLowerCase().startsWith("[x]") ? i : null)).filter((x) => x !== null),
+      savedLines
+        .map((l, i) => {
+          if (l.toLowerCase().startsWith("[x]")) return i;
+          if (/^\[[ ]\]/i.test(l)) return null;
+          return activity.status === "done" ? i : null;
+        })
+        .filter((x) => x !== null),
     );
     setGithubRepo(activity.github_repo || "");
     setArea(activity.area || "");
@@ -170,10 +174,29 @@ export default function ActivityDrawer({
     .map((line) => line.trim())
     .filter(Boolean);
 
-  function toggleObjective(i) {
-    setCheckedObjectives((prev) =>
-      prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i],
-    );
+  function markedObjectives(lines, checked) {
+    return lines
+      .map((line, i) => `${checked.includes(i) ? "[x]" : "[ ]"} ${line.replace(/^\[[x ]\]\s*/i, "")}`)
+      .join("\n");
+  }
+
+  async function toggleObjective(i) {
+    const next = checkedObjectives.includes(i)
+      ? checkedObjectives.filter((x) => x !== i)
+      : [...checkedObjectives, i];
+    setCheckedObjectives(next);
+    const live = activity.status === "in_progress" || activity.status === "in_review";
+    if (readonly || draft || !live) return;
+    setError("");
+    try {
+      await onSave({
+        ...buildPayload(activity.status),
+        objectives: markedObjectives(objectiveLines, next),
+      });
+    } catch (err) {
+      setCheckedObjectives(checkedObjectives);
+      setError(err.message);
+    }
   }
 
   function updateResource(i, patch) {
@@ -199,9 +222,7 @@ export default function ActivityDrawer({
     };
     // objetivos são lista de seleção do fluxo de execução: a marcação persiste
     // mesmo sem o modo de edição estrutural (canEdit)
-    payload.objectives = objectiveLines
-      .map((line, i) => `${checkedObjectives.includes(i) ? "[x]" : "[ ]"} ${line.replace(/^\[[x ]\]\s*/, "")}`)
-      .join("\n");
+    payload.objectives = markedObjectives(objectiveLines, checkedObjectives);
     if (canEdit) {
       Object.assign(payload, {
         mode,
@@ -220,13 +241,14 @@ export default function ActivityDrawer({
     return payload;
   }
 
-  async function handleSave() {
+  async function handleSave(statusOverride) {
+    const nextStatus = typeof statusOverride === "string" ? statusOverride : undefined;
     setSaving(true);
     setError("");
     try {
-      await onSave(buildPayload());
-      onClose();
+      await onSave(buildPayload(nextStatus));
     } catch (err) {
+      if (nextStatus) setStatus(activity.status);
       setError(err.message);
     } finally {
       setSaving(false);
@@ -306,7 +328,11 @@ export default function ActivityDrawer({
                   <Select
                     label="Status"
                     value={status}
-                    onChange={(e) => setStatus(e.target.value)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setStatus(next);
+                      handleSave(next);
+                    }}
                     renderValue={(v) =>
                       displayStatus(activity) === "waiting" && v === "blocked"
                         ? statusLabel("waiting")
@@ -332,7 +358,7 @@ export default function ActivityDrawer({
                   !draft &&
                   canTimer &&
                   (status === "todo" || status === "in_progress") &&
-                  activity.prerequisites_met !== false &&
+                  (activity.prerequisites_met !== false || activity.status === "in_progress") &&
                   displayStatus(activity) !== "waiting" && (
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%" }}>
                       {activity.is_playing ? (
@@ -369,7 +395,12 @@ export default function ActivityDrawer({
                               setSaving(false);
                             }
                           }}
-                          disabled={saving || !onPlay || !activity.assignee}
+                          disabled={
+                            saving ||
+                            !onPlay ||
+                            !activity.assignee ||
+                            activity.prerequisites_met === false
+                          }
                         >
                           Play
                         </Button>
@@ -479,20 +510,71 @@ export default function ActivityDrawer({
                       )}
                     </Stack>
                   )}
-                {!readonly && !draft && status === "in_progress" && activity.status === "in_progress" && (
+                {activity.status === "done" && objectiveLines.length > 0 && (
+                  <Box>
+                    <Typography variant="overline">Objectives</Typography>
+                    {objectiveLines.map((line, i) => (
+                      <Box key={i} sx={{ display: "flex", alignItems: "flex-start" }}>
+                        <Checkbox
+                          size="small"
+                          checked={checkedObjectives.includes(i)}
+                          disabled
+                          inputProps={{ "aria-label": line }}
+                          sx={{ padding: 0, mr: 1.5, mt: "2px" }}
+                        />
+                        <Typography variant="body2" sx={{ flex: 1, pt: "2px" }}>
+                          {line}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+                {!readonly &&
+                  !draft &&
+                  (activity.status === "in_progress" || activity.status === "in_review") &&
+                  status === activity.status && (
                   <Stack spacing={0.5}>
+                    {objectiveLines.length > 0 && (
+                      <Box>
+                        <Typography variant="overline">
+                          Objectives · {checkedObjectives.length}/{objectiveLines.length}
+                        </Typography>
+                        {objectiveLines.map((line, i) => (
+                          <Box key={i} sx={{ display: "flex", alignItems: "flex-start" }}>
+                            <Checkbox
+                              size="small"
+                              checked={checkedObjectives.includes(i)}
+                              onChange={() => toggleObjective(i)}
+                              inputProps={{ "aria-label": line }}
+                              sx={{ padding: 0, mr: 1.5, mt: "2px" }}
+                            />
+                            <Typography variant="body2" sx={{ flex: 1, pt: "2px" }}>
+                              {line}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
                     <Button
                       variant="contained"
-                      onClick={() => handleTransition("in_review")}
+                      color="success"
+                      onClick={() => handleTransition("done")}
                       disabled={
-                        saving || !(activity.is_playing || (activity.effort_seconds ?? 0) > 0)
+                        saving ||
+                        !(activity.is_playing || (activity.effort_seconds ?? 0) > 0) ||
+                        (objectiveLines.length > 0 && checkedObjectives.length < objectiveLines.length)
                       }
                     >
-                      Finish and send to review
+                      Complete
                     </Button>
                     {!(activity.is_playing || (activity.effort_seconds ?? 0) > 0) && (
                       <Typography variant="caption" color="text.secondary">
                         No effort yet — use Play or Add Effort first
+                      </Typography>
+                    )}
+                    {objectiveLines.length > 0 && checkedObjectives.length < objectiveLines.length && (
+                      <Typography variant="caption" color="text.secondary">
+                        Check every objective to complete
                       </Typography>
                     )}
                   </Stack>
@@ -535,54 +617,6 @@ export default function ActivityDrawer({
                   <Typography variant="body2" color="text.secondary">
                     {activity.blocked_reason}
                   </Typography>
-                )}
-                {!readonly && !draft && status === "in_review" && (
-                  <Stack spacing={1}>
-                    {objectiveLines.length > 0 && (
-                      <Box>
-                        <Typography variant="overline">Objectives</Typography>
-                        {objectiveLines.map((line, i) => (
-                          <Box key={i} sx={{ display: "flex", alignItems: "flex-start" }}>
-                            <Checkbox
-                              size="small"
-                              checked={checkedObjectives.includes(i)}
-                              onChange={() => toggleObjective(i)}
-                              inputProps={{ "aria-label": line }}
-                              sx={{ padding: 0, mr: 1.5, mt: "2px" }}
-                            />
-                            <Typography variant="body2" sx={{ flex: 1, pt: "2px" }}>
-                              {line}
-                            </Typography>
-                          </Box>
-                        ))}
-                      </Box>
-                    )}
-                    <Button
-                      variant="contained"
-                      color="success"
-                      onClick={() => handleTransition("done")}
-                      disabled={saving || (objectiveLines.length > 0 && checkedObjectives.length < objectiveLines.length)}
-                    >
-                      Approve
-                    </Button>
-                    <TextField
-                      label="Rejection reason"
-                      size="small"
-                      fullWidth
-                      multiline
-                      minRows={2}
-                      value={rejectReason}
-                      onChange={(e) => setRejectReason(e.target.value)}
-                    />
-                    <Button
-                      variant="outlined"
-                      color="error"
-                      onClick={() => handleTransition("in_progress", rejectReason)}
-                      disabled={saving || !rejectReason}
-                    >
-                      Reject
-                    </Button>
-                  </Stack>
                 )}
                 <TextField
                   label="Notes"
@@ -751,6 +785,14 @@ export default function ActivityDrawer({
               </AccordionDetails>
             </Accordion>
           )}
+          <Stack direction="row" spacing={1}>
+            <Button variant="contained" onClick={() => handleSave()} disabled={readonly || saving}>
+              Save
+            </Button>
+            <Button variant="outlined" onClick={onClose}>
+              Close
+            </Button>
+          </Stack>
           <Divider />
           <Typography variant="overline">History</Typography>
           {historyLoading ? (
@@ -817,30 +859,25 @@ export default function ActivityDrawer({
               </Box>
             ))
           )}
-          <Divider />
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button variant="contained" onClick={handleSave} disabled={readonly || saving}>
-              Save
-            </Button>
-            {canEdit && onDuplicate && (
-              <Button
-                variant="outlined"
-                startIcon={<ControlPointDuplicateIcon />}
-                onClick={() => onDuplicate(activity)}
-                disabled={saving}
-              >
-                Make a copy
-              </Button>
-            )}
-            <Button variant="outlined" onClick={onClose}>
-              Close
-            </Button>
-            {canEdit && (draft || activity.status === "todo") && (
-              <Button color="error" onClick={() => onDelete(activity)}>
-                Delete
-              </Button>
-            )}
-          </Stack>
+          {canEdit && (onDuplicate || draft || activity.status === "todo") ? (
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {canEdit && onDuplicate && (
+                <Button
+                  variant="outlined"
+                  startIcon={<ControlPointDuplicateIcon />}
+                  onClick={() => onDuplicate(activity)}
+                  disabled={saving}
+                >
+                  Make a copy
+                </Button>
+              )}
+              {canEdit && (draft || activity.status === "todo") && (
+                <Button color="error" onClick={() => onDelete(activity)}>
+                  Delete
+                </Button>
+              )}
+            </Stack>
+          ) : null}
         </Stack>
       </Box>
     </Drawer>

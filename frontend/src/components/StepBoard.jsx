@@ -5,11 +5,10 @@ import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ControlPointDuplicateIcon from "@mui/icons-material/ControlPointDuplicate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
-import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import PauseIcon from "@mui/icons-material/Pause";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Box, Card, CardActionArea, CardContent, Chip, IconButton, Stack, Typography } from "@mui/material";
-import { displayStatus, isStuck, statusLabel } from "../activityStatus";
+import { displayStatus, isObjectiveChecked, objectiveItems, statusLabel } from "../activityStatus";
 import { statusColors } from "../statusColors";
 import {
   canControlTimer,
@@ -138,10 +137,15 @@ export default function StepBoard({
             <Stack spacing={1}>
               {visibleActs.map((activity, actIdx) => {
                 const eligible = timerEligible(activity);
+                const playBlocked = activity.status === "in_progress" && activity.prerequisites_met === false && !activity.is_playing;
                 const showTimer = eligible && canControlTimer(activity, auth) && (onPlay || onPause);
-                const gateMsg =
+                const gateReason =
                   eligible && (onPlay || onPause) && !canControlTimer(activity, auth)
-                    ? timerGateMessage(timerGateReason(activity, auth))
+                    ? timerGateReason(activity, auth)
+                    : null;
+                const gateMsg =
+                  gateReason && gateReason !== "email_mismatch"
+                    ? timerGateMessage(gateReason)
                     : null;
                 const chip = workflowChip(activity, displayStatus, statusLabel, statusColors);
                 return (
@@ -165,12 +169,6 @@ export default function StepBoard({
                           >
                             {activity.label}
                           </Typography>
-                          {isStuck(activity) && (
-                            <LockOutlinedIcon
-                              sx={{ fontSize: "0.875rem", color: "text.primary", flexShrink: 0 }}
-                              titleAccess="Stuck"
-                            />
-                          )}
                           <ResourceLinks
                             resources={activity.resources}
                             sx={{ p: 0.25, ml: "auto" }}
@@ -214,53 +212,80 @@ export default function StepBoard({
                               </IconButton>
                             </Stack>
                           )}
+                          <ModeChip mode={activity.mode} iconOnly />
                         </Stack>
-                        {activity.objectives &&
-                          activity.objectives
-                            .split("\n")
-                            .map((s) => s.trim())
-                            .filter(Boolean)
-                            .map((obj, i) => (
+                        {objectiveItems(activity.objectives).length > 0 && (
+                          <>
+                            {activity.status !== "done" && (
+                              <Typography variant="caption" color="text.secondary">
+                                {objectiveItems(activity.objectives).filter((obj) => isObjectiveChecked(obj, activity.status)).length}
+                                /{objectiveItems(activity.objectives).length}
+                              </Typography>
+                            )}
+                            {objectiveItems(activity.objectives).map((obj, i) => (
                               <Typography key={i} variant="caption" color="text.secondary">
-                                {activity.status === "done" ? "✓ " : "○ "}
+                                {isObjectiveChecked(obj, activity.status) ? "✓ " : "○ "}
                                 {obj.replace(/^\[[x ]\]\s*/, "")}
                               </Typography>
                             ))}
+                          </>
+                        )}
                       </Stack>
                     </CardContent>
                   </CardActionArea>
                   <Stack
                     direction="row"
                     spacing={0.5}
-                    flexWrap="wrap"
-                    useFlexGap
-                    alignItems="center"
+                    alignItems="flex-start"
                     sx={{ px: 1.5, pb: gateMsg ? 0.5 : 1.5 }}
                   >
-                    <Chip size="small" label={chip.label} color={chip.color} />
-                    <ModeChip mode={activity.mode} size="small" />
-                    {activity.assignee && (
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={activity.assignee.name || activity.assignee.email}
-                      />
-                    )}
+                    <Stack
+                      direction="row"
+                      spacing={0.5}
+                      flexWrap="wrap"
+                      useFlexGap
+                      alignItems="center"
+                      sx={{ flex: 1, minWidth: 0 }}
+                    >
+                      <Chip size="small" label={chip.label} color={chip.color} />
+                      {activity.assignee && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={activity.assignee.name || activity.assignee.email}
+                        />
+                      )}
+                    </Stack>
                     {showTimer && (
                       <IconButton
                         size="small"
                         color={activity.is_playing ? "success" : "primary"}
-                        title={activity.is_playing ? "Pause" : "Play"}
+                        title={playBlocked ? "Finish the prerequisites first" : activity.is_playing ? "Pause" : "Play"}
                         aria-label={activity.is_playing ? "Pause" : "Play"}
+                        disabled={playBlocked}
+                        sx={{
+                          flexShrink: 0,
+                          width: 24,
+                          height: 24,
+                          p: 0,
+                          border: 1,
+                          borderRadius: 1,
+                          borderColor: playBlocked
+                            ? "action.disabled"
+                            : activity.is_playing
+                              ? "success.main"
+                              : "primary.main",
+                        }}
                         onClick={() => {
+                          if (playBlocked) return;
                           if (activity.is_playing) onPause?.(activity);
                           else onPlay?.(activity);
                         }}
                       >
                         {activity.is_playing ? (
-                          <PauseIcon fontSize="small" />
+                          <PauseIcon sx={{ fontSize: 16 }} />
                         ) : (
-                          <PlayArrowIcon fontSize="small" />
+                          <PlayArrowIcon sx={{ fontSize: 16 }} />
                         )}
                       </IconButton>
                     )}

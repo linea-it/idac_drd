@@ -417,7 +417,9 @@ def _transition_note(activity: Activity, transition, actor=None, assigned=False,
     if to == Activity.Status.IN_REVIEW:
         return f'Atividade "{label}" enviada para revisão — aguardando aprovação.{by}'
     if to == Activity.Status.DONE:
-        return f'Atividade "{label}" aprovada e concluída.{by}'
+        if transition.from_status == Activity.Status.IN_REVIEW:
+            return f'Atividade "{label}" aprovada e concluída.{by}'
+        return f'Atividade "{label}" concluída.{by}'
     if to == Activity.Status.IN_PROGRESS and transition.from_status == Activity.Status.IN_REVIEW:
         # HTML mínimo: o GLPI renderiza parágrafos e negrito na timeline
         reason = escape(transition.comment or "sem motivo informado")

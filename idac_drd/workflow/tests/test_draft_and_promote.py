@@ -67,7 +67,6 @@ def test_create_draft_from_release_copies_everything(identity):
     act = source.activities.get(key="step-1")
     transition_activity(act, to_status=Activity.Status.IN_PROGRESS, actor=None)
     prime_effort(act, None)
-    transition_activity(act, to_status=Activity.Status.IN_REVIEW, actor=None)
     transition_activity(act, to_status=Activity.Status.DONE, actor=None)
 
     plan = create_draft(name="Plano", copy_from_release=source)

@@ -30,6 +30,7 @@ const activity = {
 
 function renderDrawer(draft, canEdit = true) {
   const onSave = vi.fn().mockResolvedValue(undefined);
+  const onClose = vi.fn();
   const view = render(
     <ActivityDrawer
       open
@@ -42,19 +43,20 @@ function renderDrawer(draft, canEdit = true) {
       readonly={false}
       draft={draft}
       canEdit={canEdit}
-      onClose={() => {}}
+      onClose={onClose}
       onSave={onSave}
       onDelete={() => {}}
       onMove={() => {}}
     />,
   );
-  return { onSave, unmount: view.unmount };
+  return { onSave, onClose, unmount: view.unmount };
 }
 
 test("em execução envia o payload estrutural completo", async () => {
-  const { onSave } = renderDrawer(false);
+  const { onSave, onClose } = renderDrawer(false);
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(onSave).toHaveBeenCalled());
+  expect(onClose).not.toHaveBeenCalled();
   expect(onSave).toHaveBeenCalledWith({
     status: "in_progress",
     assignee_id: null,
@@ -135,8 +137,13 @@ test("status fica desabilitado em draft (transição só após o start)", async 
   view.unmount();
 });
 
-test("em in_review os objetivos aparecem como checklist e o Approve exige todos", async () => {
-  const withObjectives = { ...activity, status: "in_review", objectives: "Validar schema\nGerar dataset" };
+test("em execução o checklist persiste e o Complete exige todos", async () => {
+  const withObjectives = {
+    ...activity,
+    status: "in_progress",
+    effort_seconds: 12,
+    objectives: "Validar schema\nGerar dataset",
+  };
   const onSave = vi.fn().mockResolvedValue(undefined);
   const view = render(
     <ActivityDrawer
@@ -156,23 +163,36 @@ test("em in_review os objetivos aparecem como checklist e o Approve exige todos"
     />,
   );
 
-  // as duas metas aparecem no bloco de aprovação
-  const approveButton = screen.getByRole("button", { name: "Approve" });
+  const completeButton = screen.getByRole("button", { name: "Complete" });
   expect(screen.getByText("Validar schema")).toBeInTheDocument();
   expect(screen.getByText("Gerar dataset")).toBeInTheDocument();
 
-  // sem marcar tudo, Approve fica desabilitado
-  expect(approveButton).toHaveProperty("disabled", true);
+  expect(completeButton).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByLabelText("Validar schema"));
-  expect(approveButton).toHaveProperty("disabled", true);
+  await waitFor(() =>
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "in_progress",
+        objectives: "[x] Validar schema\n[ ] Gerar dataset",
+      }),
+    ),
+  );
+  expect(completeButton).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByLabelText("Gerar dataset"));
-  expect(approveButton).toHaveProperty("disabled", false);
-  fireEvent.click(approveButton);
-  await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ status: "done" })));
+  expect(completeButton).toHaveProperty("disabled", false);
+  fireEvent.click(completeButton);
+  await waitFor(() =>
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "done",
+        objectives: "[x] Validar schema\n[x] Gerar dataset",
+      }),
+    ),
+  );
   view.unmount();
 });
 
-test("em execução o status vira ação: Send to review em in_progress", async () => {
+test("em execução o status vira ação: Complete em in_progress", async () => {
   const onSave = vi.fn().mockResolvedValue(undefined);
   const withEffort = { ...activity, effort_seconds: 12 };
   const view = render(
@@ -193,16 +213,15 @@ test("em execução o status vira ação: Send to review em in_progress", async 
     />,
   );
 
-  // em in_progress: botão de entrega, sem Approve
-  const sendButton = screen.getByRole("button", { name: "Finish and send to review" });
+  const sendButton = screen.getByRole("button", { name: "Complete" });
   expect(sendButton).toHaveProperty("disabled", false);
   expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   fireEvent.click(sendButton);
-  await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ status: "in_review" })));
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ status: "done" })));
   view.unmount();
 });
 
-test("Send to review fica desabilitado sem effort nem play", () => {
+test("Complete fica desabilitado sem effort nem play", () => {
   const withAssignee = {
     ...activity,
     effort_seconds: 0,
@@ -229,7 +248,7 @@ test("Send to review fica desabilitado sem effort nem play", () => {
       userEmail="alice@linea.org.br"
     />,
   );
-  expect(screen.getByRole("button", { name: "Finish and send to review" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Complete" })).toHaveProperty(
     "disabled",
     true,
   );
@@ -286,8 +305,9 @@ test("colchetes de persistência não aparecem no dashboard e o save re-aplica a
   view.unmount();
 });
 
-test("selecionar in_progress no select sem salvar não ativa o envio para review", async () => {
+test("selecionar o status salva na hora e não fecha o drawer", async () => {
   const onSave = vi.fn().mockResolvedValue(undefined);
+  const onClose = vi.fn();
   const view = render(
     <ActivityDrawer
       open
@@ -299,22 +319,23 @@ test("selecionar in_progress no select sem salvar não ativa o envio para review
       activities={[activity]}
       readonly={false}
       draft={false}
-      onClose={() => {}}
+      onClose={onClose}
       onSave={onSave}
       onDelete={() => {}}
       onMove={() => {}}
     />,
   );
 
-  // todo → in_progress apenas no select: ainda não persistido
   fireEvent.mouseDown(screen.getAllByRole("combobox")[0]);
   fireEvent.click(await screen.findByText("In progress"));
 
-  expect(screen.queryByRole("button", { name: "Finish and send to review" })).not.toBeInTheDocument();
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ status: "in_progress" })));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
   view.unmount();
 });
 
-test("em blocked não há botão de envio para review", async () => {
+test("em blocked não há botão de conclusão", async () => {
   const onSave = vi.fn().mockResolvedValue(undefined);
   const view = render(
     <ActivityDrawer
@@ -334,7 +355,7 @@ test("em blocked não há botão de envio para review", async () => {
     />,
   );
 
-  expect(screen.queryByRole("button", { name: "Finish and send to review" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   view.unmount();
 });

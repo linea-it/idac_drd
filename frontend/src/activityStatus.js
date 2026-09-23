@@ -40,6 +40,21 @@ export function statusLabel(status) {
   return STATUS_LABELS[status] || status;
 }
 
+export function objectiveItems(objectives) {
+  return (objectives || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+// [x] está feito. [ ] está aberto. Sem colchete, done legado conta como feito.
+export function isObjectiveChecked(line, status) {
+  const text = (line || "").trim();
+  if (/^\[x\]/i.test(text)) return true;
+  if (/^\[[ ]\]/i.test(text)) return false;
+  return status === "done";
+}
+
 const RELEASE_STATUS_LABELS = {
   draft: "Draft",
   active: "In execution",

@@ -102,7 +102,6 @@ def test_play_switch_pauses_previous(release, user, identity):
     a1.save(update_fields=["assignee"])
     play_activity(a1, actor=user)
 
-    transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
     transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
     a2 = release.activities.get(key="step-2")
     a2.assignee = identity
@@ -157,13 +156,34 @@ def test_pause_closes_session(release, user, identity):
 
 
 @pytest.mark.django_db
+def test_play_blocked_when_prerequisite_reopened(release, user, identity):
+    """Pré-requisito concluído que volta a in_progress trava o play da dependente."""
+    a1 = release.activities.get(key="step-1")
+    a2 = release.activities.get(key="step-2")
+    a1.assignee = identity
+    a2.assignee = identity
+    a1.save(update_fields=["assignee"])
+    a2.save(update_fields=["assignee"])
+    play_activity(a1, actor=user)
+    transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
+    a2.refresh_from_db()
+    play_activity(a2, actor=user)
+    pause_activity(a2, actor=user)
+    transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user)
+    with pytest.raises(WorkflowError, match="Finish these first"):
+        play_activity(a2, actor=user)
+
+
+@pytest.mark.django_db
 def test_rejection_does_not_auto_open_session(release, user, identity):
     a1 = release.activities.get(key="step-1")
     a1.assignee = identity
     a1.save(update_fields=["assignee"])
     play_activity(a1, actor=user)
-    transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
+    transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
     assert ActivityWorkSession.objects.filter(activity=a1, ended_at__isnull=True).count() == 0
+    Activity.objects.filter(pk=a1.pk).update(status=Activity.Status.IN_REVIEW)
+    a1.refresh_from_db()
     transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user, comment="faltou schema")
     assert ActivityWorkSession.objects.filter(activity=a1, ended_at__isnull=True).count() == 0
 
@@ -177,7 +197,7 @@ def test_status_in_progress_does_not_open_session(release, user, identity):
     transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=user)
     assert ActivityWorkSession.objects.filter(activity=a1).count() == 0
     with pytest.raises(WorkflowError, match="Record effort with Play"):
-        transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
+        transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
 
 
 @pytest.mark.django_db
@@ -275,8 +295,8 @@ def test_record_manual_effort(release, user, identity):
     with pytest.raises(WorkflowError, match="already recorded"):
         record_manual_effort(a1, minutes=10, actor=user)
 
-    transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=user)
-    assert a1.status == Activity.Status.IN_REVIEW
+    transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
+    assert a1.status == Activity.Status.DONE
 
 
 @pytest.mark.django_db

@@ -25,7 +25,7 @@ DEFAULT_ACTIVITIES = [
 
 
 def prime_effort(activity, actor=None):
-    """Garante ≥1 sessão fechada — gate de in_review (Play é a porta real em produção)."""
+    """Garante ≥1 sessão fechada — gate de conclusão (Play é a porta real em produção)."""
     assignee = activity.assignee
     if assignee is None:
         assignee, _ = ExternalIdentity.objects.get_or_create(

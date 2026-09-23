@@ -133,9 +133,7 @@ class Activity(models.Model):
     def next_in_step(self):
         """Próxima activity do mesmo step (na ordem).
 
-        ``None`` quando esta é a última do step. Aprovação não usa esta
-        cadeia: qualquer pessoa pode aprovar; o aviso de review aponta
-        para os assignees das atividades que dependem desta.
+        ``None`` quando esta é a última do step.
         """
         return self.step.activities.filter(order__gt=self.order).order_by("order", "id").first()
 

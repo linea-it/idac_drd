@@ -20,8 +20,15 @@ const MODES = {
  * Icon-only mode indicator (NiFi / Manual). Label is exposed via Tooltip + aria-label.
  * Uses a focusable Box instead of an empty MUI Chip to avoid fighting Chip label padding.
  */
-export default function ModeChip({ mode, size = "medium", sx }) {
+export default function ModeChip({ mode, size = "medium", iconOnly = false, sx }) {
   const { label, color, Icon } = MODES[mode] ?? MODES.manual;
+  if (iconOnly) {
+    return (
+      <Tooltip title={label} arrow>
+        <Icon aria-label={label} sx={{ fontSize: 22, color, flexShrink: 0, ...sx }} />
+      </Tooltip>
+    );
+  }
   // Match MUI Chip size heights (small=24, medium=32)
   const height = size === "small" ? 24 : 32;
 

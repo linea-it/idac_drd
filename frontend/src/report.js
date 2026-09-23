@@ -7,7 +7,7 @@
 // · 4. Objectives · 5. Steps & Activities · 6. Difficulties · 7. Workload &
 // Participation · 8. References · 9. Appendix (full transition log).
 
-import { releaseStatusLabel, statusLabel, displayStatus, isPrereqAutoBlock } from "./activityStatus";
+import { releaseStatusLabel, statusLabel, displayStatus, isObjectiveChecked, isPrereqAutoBlock } from "./activityStatus";
 
 export function fmtDuration(totalSeconds) {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "—";
@@ -513,7 +513,7 @@ export function renderObjectives(release, activities) {
       lines.push("");
       for (const obj of a.objectives.split("\n").map((s) => s.trim()).filter(Boolean)) {
         // o prefixo [x]/[ ] é de persistência (tickets); o relatório decide a marcação
-        lines.push(`- [${a.status === "done" ? "x" : " "}] ${obj.replace(/^\[[x ]\]\s*/, "")}`);
+        lines.push(`- [${isObjectiveChecked(obj, a.status) ? "x" : " "}] ${obj.replace(/^\[[x ]\]\s*/, "")}`);
       }
       lines.push("");
     }

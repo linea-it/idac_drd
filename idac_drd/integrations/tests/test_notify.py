@@ -662,7 +662,6 @@ def test_on_commit_notifies_ready_on_auto_unblock(monkeypatch):
     try:
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None)
         prime_effort(a1, None)
-        transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         transition_activity(a1, to_status=Activity.Status.DONE, actor=None)
         assert len(ready_calls) == 1
         assert ready_calls[0].key == "a2"
@@ -717,8 +716,10 @@ def test_add_activity_in_active_release_notifies_assignee(monkeypatch):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_on_commit_notifies_after_review_and_rejection(monkeypatch):
-    """Caminho real: in_review e rejeição agendam on_commit; rodam no commit."""
+def test_legacy_in_review_rejection_still_notifies(monkeypatch):
+    """Entrar em in_review não é mais o fluxo. Sair de uma linha legada ainda avisa."""
+    from idac_drd.workflow.services import WorkflowError
+
     review_calls, rejection_calls = [], []
 
     def capture_rejection(activity, comment, reviewer):
@@ -736,18 +737,15 @@ def test_on_commit_notifies_after_review_and_rejection(monkeypatch):
         start_release(release)
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None)
         prime_effort(a1, None)
-        transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
-        assert len(review_calls) == 1
-        assert review_calls[0].key == "a1"
-        # rejeição (com motivo) notifica o executor com o motivo
+        with pytest.raises(WorkflowError, match="Complete the activity from In progress"):
+            transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
+        assert review_calls == []
+        Activity.objects.filter(pk=a1.pk).update(status=Activity.Status.IN_REVIEW)
+        a1.refresh_from_db()
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None, comment="fix")
         assert len(rejection_calls) == 1
         assert rejection_calls[0][0].key == "a1"
         assert rejection_calls[0][1] == "fix"
-        # novo in_review notifica de novo
-        prime_effort(a1, None)
-        transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
-        assert len(review_calls) == 2
     finally:
         release.delete()
 
@@ -815,12 +813,10 @@ def test_on_commit_notifies_complete_when_last_approved(monkeypatch):
     try:
         transition_activity(a1, to_status=Activity.Status.IN_PROGRESS, actor=None)
         prime_effort(a1, None)
-        transition_activity(a1, to_status=Activity.Status.IN_REVIEW, actor=None)
         transition_activity(a1, to_status=Activity.Status.DONE, actor=None)
         assert calls == []  # a2 ainda pendente: release continua ativa
         transition_activity(a2, to_status=Activity.Status.IN_PROGRESS, actor=None)
         prime_effort(a2, None)
-        transition_activity(a2, to_status=Activity.Status.IN_REVIEW, actor=None)
         transition_activity(a2, to_status=Activity.Status.DONE, actor=None)
         assert len(calls) == 1
         assert calls[0].slug == "p-complete"

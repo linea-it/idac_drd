@@ -119,7 +119,7 @@ def play_activity(activity: Activity, *, actor=None) -> tuple[Activity, list[Act
         raise WorkflowError("Only the assignee or a superuser can start the timer.")
     if activity.status not in (Activity.Status.TODO, Activity.Status.IN_PROGRESS):
         raise WorkflowError("Play only from To do or In progress.")
-    if activity.status == Activity.Status.TODO and not activity.prerequisites_met():
+    if not activity.prerequisites_met():
         pending = list(activity.depends_on.exclude(status=Activity.Status.DONE).values_list("label", flat=True))
         raise WorkflowError(
             "Finish these first: " + ", ".join(pending) if pending else "Finish the prerequisites first."
@@ -270,6 +270,19 @@ def _notify_complete_later(release: DataRelease) -> None:
 def _strip_marks(objectives: str) -> str:
     """Colchetes [x]/[ ] são marcação de execução — a cópia nasce limpa."""
     return "\n".join(re.sub(r"^\[[x ]\]\s*", "", line) for line in (objectives or "").splitlines())
+
+
+def pending_objectives(objectives: str) -> list[str]:
+    """Linhas ainda não marcadas [x]. Texto sem colchete conta como pendente."""
+    pending = []
+    for line in (objectives or "").splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if re.match(r"^\[x\]\s*", text, flags=re.IGNORECASE):
+            continue
+        pending.append(re.sub(r"^\[[x ]\]\s*", "", text, flags=re.IGNORECASE))
+    return pending
 
 
 def _clone_structure(source_steps, source_items, target: DataRelease) -> DataRelease:
@@ -426,17 +439,22 @@ def transition_activity(
         return activity
 
     if to_status == Activity.Status.IN_REVIEW:
-        if from_status != Activity.Status.IN_PROGRESS:
-            raise WorkflowError("Send to review only from In progress.")
-        # FTE: só Play abre sessão; review exige pelo menos uma sessão registrada
-        if not activity.work_sessions.exists():
-            raise WorkflowError("Record effort with Play or add it manually before sending to review.")
-    elif to_status == Activity.Status.DONE:
-        # done = aprovação: só de in_review; qualquer pessoa autenticada (ou sistema)
-        if from_status != Activity.Status.IN_REVIEW:
-            raise WorkflowError("Approve only from In review.")
+        # o valor continua válido para histórico e sync; o fluxo não entra mais nele
+        raise WorkflowError("Complete the activity from In progress. Review is a later activity.")
+    if to_status == Activity.Status.DONE:
+        # legado: quem já está in_review ainda pode concluir
+        if from_status == Activity.Status.IN_REVIEW:
+            pass
+        elif from_status != Activity.Status.IN_PROGRESS:
+            raise WorkflowError("Complete only from In progress.")
+        else:
+            if not activity.work_sessions.exists():
+                raise WorkflowError("Record effort with Play or add it manually before completing.")
+            pending = pending_objectives(activity.objectives)
+            if pending:
+                raise WorkflowError("Check every objective before completing: " + ", ".join(pending))
     elif to_status == Activity.Status.IN_PROGRESS and from_status == Activity.Status.IN_REVIEW:
-        # rejeição da revisão: exige motivo
+        # legado: devolver uma atividade que ainda está in_review exige motivo
         if not comment:
             raise WorkflowError("Add a reason to reject this review.")
 

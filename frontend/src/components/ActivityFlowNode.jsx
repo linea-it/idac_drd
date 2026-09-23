@@ -36,6 +36,7 @@ export default function ActivityFlowNode({ data }) {
   const auth = { isSuperuser, userEmail };
   const showTimer =
     timerEligible(activity) && canControlTimer(activity, auth) && (onPlay || onPause);
+  const playBlocked = activity.status === "in_progress" && activity.prerequisites_met === false && !activity.is_playing;
   const chip = workflowChip(activity, displayStatus, statusLabel, statusColors);
 
   const borderColor =
@@ -71,10 +72,12 @@ export default function ActivityFlowNode({ data }) {
       <IconButton
         size="small"
         color={activity.is_playing ? "success" : "primary"}
-        title={activity.is_playing ? "Pause" : "Play"}
+        title={playBlocked ? "Finish the prerequisites first" : activity.is_playing ? "Pause" : "Play"}
         aria-label={activity.is_playing ? "Pause" : "Play"}
+        disabled={playBlocked}
         onClick={(e) => {
           e.stopPropagation();
+          if (playBlocked) return;
           if (activity.is_playing) onPause?.(activity);
           else onPlay?.(activity);
         }}
