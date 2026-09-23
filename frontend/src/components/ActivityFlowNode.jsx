@@ -5,7 +5,7 @@ import { Handle, Position } from "@xyflow/react";
 import { Box, Chip, IconButton, Stack, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { displayStatus, isStuck, statusLabel } from "../activityStatus";
-import { statusColors } from "../statusColors";
+import { statusChipProps, statusColors } from "../statusColors";
 import { canControlTimer, workflowChip } from "../timerUi";
 import ModeChip from "./ModeChip";
 import ResourceLinks from "./ResourceLinks";
@@ -28,6 +28,7 @@ export default function ActivityFlowNode({ data }) {
     flash,
     onPlay,
     onPause,
+    pending = false,
     isSuperuser = false,
     userEmail = "",
   } = data;
@@ -38,6 +39,7 @@ export default function ActivityFlowNode({ data }) {
     timerEligible(activity) && canControlTimer(activity, auth) && (onPlay || onPause);
   const playBlocked = activity.status === "in_progress" && activity.prerequisites_met === false && !activity.is_playing;
   const chip = workflowChip(activity, displayStatus, statusLabel, statusColors);
+  const chipProps = statusChipProps(chip.color);
 
   const borderColor =
     status === "blocked"
@@ -74,7 +76,7 @@ export default function ActivityFlowNode({ data }) {
         color={activity.is_playing ? "success" : "primary"}
         title={playBlocked ? "Finish the prerequisites first" : activity.is_playing ? "Pause" : "Play"}
         aria-label={activity.is_playing ? "Pause" : "Play"}
-        disabled={playBlocked}
+        disabled={playBlocked || pending}
         onClick={(e) => {
           e.stopPropagation();
           if (playBlocked) return;
@@ -147,8 +149,12 @@ export default function ActivityFlowNode({ data }) {
             <Chip
               size="small"
               label={chip.label}
-              color={chip.color}
-              sx={{ height: 20, "& .MuiChip-label": { fontSize: 11, px: 0.8 } }}
+              color={chipProps.color}
+              sx={{
+                height: 20,
+                "& .MuiChip-label": { fontSize: 11, px: 0.8 },
+                ...chipProps.sx,
+              }}
             />
             <ModeChip mode={activity.mode} size="small" sx={{ height: 20 }} />
             {activity.assignee && (

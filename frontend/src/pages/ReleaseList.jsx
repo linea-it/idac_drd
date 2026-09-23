@@ -37,7 +37,8 @@ import { releaseStatusLabel } from "../activityStatus";
 
 // estado de um step: concluído só com 100% done; In Progress se alguma
 // atividade já saiu de todo/blocked (started), mesmo com 0% done.
-// Ainda não iniciado → Waiting (pipeline; não misturar com To do de activity).
+// Ainda não iniciado → chave "waiting" no rollup do step.
+// O rótulo é "Not started": Waiting fica só para atividade parada por dependência.
 export function stepStatus(progress) {
   const pct = progress?.pct || 0;
   const started = progress?.started || 0;
@@ -47,7 +48,7 @@ export function stepStatus(progress) {
 }
 
 const STEP_STATUS_LABELS = {
-  waiting: "Waiting",
+  waiting: "Not started",
   "in progress": "In Progress",
   completed: "Completed",
 };
@@ -108,7 +109,6 @@ function ReleaseCard({ rel, onDelete }) {
                 .map((step) => {
                   const pct = step.progress?.pct || 0;
                   const status = stepStatus(step.progress);
-                  const active = status !== "waiting";
                   return (
                     <Box
                       key={step.id}
@@ -118,15 +118,12 @@ function ReleaseCard({ rel, onDelete }) {
                         borderColor: "divider",
                         borderRadius: 1,
                         overflow: "hidden",
-                        // steps que ainda não começaram ficam desativados
-                        opacity: active ? 1 : 0.45,
                       }}
                     >
                       <Box
                         sx={{
-                          bgcolor: active ? step.color || "#000099" : "action.hover",
-                          // no cinza claro dos desativados o branco não legível: título em cinza escuro
-                          color: active ? "#fff" : "grey.800",
+                          bgcolor: step.color || "#000099",
+                          color: "#fff",
                           px: 1,
                           py: 0.5,
                         }}

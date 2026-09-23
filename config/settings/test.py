@@ -16,3 +16,5 @@ SLACK_ENABLED = False
 # Canal/DM dev também vêm do env e desviariam os testes para post_to_channel.
 SLACK_CHANNEL_ID = ""
 SLACK_DEV_USER_ID = ""
+# on_commit executa a integração na hora (sem fila). A suíte não espera thread.
+INTEGRATIONS_EAGER = True

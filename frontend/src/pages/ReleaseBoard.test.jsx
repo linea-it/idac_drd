@@ -30,7 +30,17 @@ beforeEach(() => {
   apiMock.post.mockResolvedValue({});
 });
 
-test("start execution confirma e chama o endpoint", async () => {
+test("start execution confirma, mostra Starting e não repete o POST", async () => {
+  let resolvePost;
+  apiMock.post.mockImplementation((path) => {
+    if (String(path).endsWith("/start/")) {
+      return new Promise((resolve) => {
+        resolvePost = () =>
+          resolve({ ...release, status: "active", started_at: "2026-08-16T10:00:00Z" });
+      });
+    }
+    return Promise.resolve({});
+  });
   render(<ReleaseBoard releaseSlug="release-smoke" isStaff={true} />);
   expect(await screen.findByText("Release Smoke")).toBeInTheDocument();
 
@@ -38,7 +48,19 @@ test("start execution confirma e chama o endpoint", async () => {
   const dialog = await screen.findByRole("dialog");
   fireEvent.click(within(dialog).getByRole("button", { name: "Start execution" }));
 
-  await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith("/api/releases/release-smoke/start/"));
+  const starting = within(dialog).getByRole("button", { name: "Starting…" });
+  expect(starting).toBeDisabled();
+  expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+  fireEvent.click(starting);
+  expect(apiMock.post).toHaveBeenCalledTimes(1);
+  expect(apiMock.post).toHaveBeenCalledWith("/api/releases/release-smoke/start/");
+
+  resolvePost();
+  expect(await screen.findByText("In execution")).toBeInTheDocument();
+  expect(
+    screen.getByText("Creating GitHub issues and GLPI tickets in the background."),
+  ).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 });
 
 test("não existe mais 'Back to draft' no board em draft", async () => {
@@ -62,7 +84,7 @@ test("não-staff não vê ações de ciclo de vida (start/archive), só estrutur
   expect(screen.getByRole("button", { name: "Add activity" })).toBeInTheDocument();
 });
 
-test("em execução a edição é um modo explícito (Edit → Save)", async () => {
+test("em execução a edição é um toggle (Edit liga e desliga)", async () => {
   apiMock.get.mockImplementation((path) => {
     if (path === "/api/releases/release-smoke/")
       return Promise.resolve({ ...release, status: "active", started_at: "2026-08-16T10:00:00Z" });
@@ -81,15 +103,17 @@ test("em execução a edição é um modo explícito (Edit → Save)", async () 
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   expect(screen.getByRole("button", { name: "Add step" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Add activity" })).toBeInTheDocument();
-  // Save finaliza o modo
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  // clicar de novo em Edit desliga o modo, sem Save/Cancel
+  expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   expect(screen.queryByRole("button", { name: "Add step" })).not.toBeInTheDocument();
   // ações de draft exclusivas nunca aparecem em execução
   expect(screen.queryByRole("button", { name: "Start execution" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Save as template" })).not.toBeInTheDocument();
 });
 
-test("em completed a edição também é um modo explícito (Edit → Save)", async () => {
+test("em completed a edição também é um toggle", async () => {
   apiMock.get.mockImplementation((path) => {
     if (path === "/api/releases/release-smoke/")
       return Promise.resolve({ ...release, status: "completed" });
@@ -108,8 +132,7 @@ test("em completed a edição também é um modo explícito (Edit → Save)", as
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   expect(screen.getByRole("button", { name: "Add step" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Add activity" })).toBeInTheDocument();
-  // Save finaliza o modo
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   expect(screen.queryByRole("button", { name: "Add step" })).not.toBeInTheDocument();
   // ações de draft exclusivas nunca aparecem em completed
   expect(screen.queryByRole("button", { name: "Start execution" })).not.toBeInTheDocument();
@@ -152,7 +175,7 @@ test("Export draft (JSON) busca o payload e dispara o download", async () => {
   expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock");
 });
 
-test("em execução, Export só em edição, Download só fora; Cancel sai recarregando", async () => {
+test("em execução, Export só em edição e Download só fora; desligar Edit não recarrega", async () => {
   apiMock.get.mockImplementation((path) => {
     if (path === "/api/releases/release-smoke/")
       return Promise.resolve({ ...release, status: "active", started_at: "2026-08-16T10:00:00Z" });
@@ -168,20 +191,17 @@ test("em execução, Export só em edição, Download só fora; Cancel sai recar
   expect(screen.queryByRole("button", { name: "Export draft (JSON)" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Download report" })).toBeInTheDocument();
 
-  // Edit habilita: Export aparece, Download some, Cancel + Save disponíveis
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   expect(screen.getByRole("button", { name: "Export draft (JSON)" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Download report" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
 
-  // Cancel desiste: recarrega do servidor e volta ao estado anterior ao Edit
   const getsBefore = apiMock.get.mock.calls.length;
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   expect(screen.queryByRole("button", { name: "Export draft (JSON)" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Download report" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
-  await waitFor(() => expect(apiMock.get.mock.calls.length).toBeGreaterThan(getsBefore));
+  expect(apiMock.get.mock.calls.length).toBe(getsBefore);
 });
 
 test("setas do Kanban reordenam atividades dentro do step", async () => {

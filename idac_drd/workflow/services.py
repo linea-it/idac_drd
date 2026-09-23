@@ -1,8 +1,11 @@
 import logging
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
-from django.db import transaction
+from django.conf import settings
+from django.db import close_old_connections, transaction
 from django.db.models import F, Max
 from django.utils import timezone
 from django.utils.text import slugify
@@ -186,10 +189,9 @@ def record_manual_effort(activity: Activity, *, minutes: float, actor=None) -> A
 
 
 def _safe(call, *args):
-    """Chama o callback de integração sem deixar exceção escapar do on_commit.
+    """Chama o callback de integração sem deixar exceção escapar.
 
-    O commit já aconteceu quando o callback roda — uma exceção aqui viraria um
-    500 pós-commit e o usuário repetiria a ação. Erro vira log, nada mais.
+    Uma falha não derruba as tarefas seguintes nem vira 500. Erro vira log.
     """
     try:
         call(*args)
@@ -197,16 +199,68 @@ def _safe(call, *args):
         logger.exception("Integration callback %s failed", getattr(call, "__name__", call))
 
 
+# Um worker, fila FIFO. notify_release_started entra antes dos sync/replies.
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="idac-integrations")
+_queue_state = threading.Condition()
+_inflight = 0
+# Teste segura o worker antes do corpo da tarefa; produção deixa aberto.
+_run_gate = threading.Event()
+_run_gate.set()
+
+
+def _run_integration(fn, args):
+    """Roda uma tarefa na thread do worker, com a conexão dela."""
+    _run_gate.wait()
+    close_old_connections()
+    try:
+        _safe(fn, *args)
+    finally:
+        close_old_connections()
+        with _queue_state:
+            global _inflight
+            _inflight -= 1
+            _queue_state.notify_all()
+
+
+def _dispatch(fn, args):
+    """Eager: executa na thread do commit. Senão: só enfileira."""
+    if getattr(settings, "INTEGRATIONS_EAGER", False):
+        _safe(fn, *args)
+        return
+    global _inflight
+    with _queue_state:
+        _inflight += 1
+    _executor.submit(_run_integration, fn, args)
+
+
+def _after_commit(fn, *args):
+    """Agenda depois do commit. Rollback não registra callback."""
+    transaction.on_commit(lambda: _dispatch(fn, args))
+
+
+def hold_integrations():
+    """Impede o worker de entrar na tarefa até drain_integrations()."""
+    _run_gate.clear()
+
+
+def drain_integrations(timeout=10):
+    """Libera o worker e espera a fila FIFO esvaziar."""
+    _run_gate.set()
+    with _queue_state:
+        if not _queue_state.wait_for(lambda: _inflight == 0, timeout):
+            raise TimeoutError("integration queue did not drain")
+
+
 def _sync_later(activity: Activity, *, actor=None) -> None:
     """Agenda a sync de integrações (GitHub/GLPI) para depois do commit.
 
-    As chamadas HTTP nunca rodam dentro de uma transação aberta. A própria sync
-    decide se aplica (gate: release em execução + flags *_ENABLED). ``actor``
-    (quem fez a mudança) vai para a nota do ticket quando não há transição.
+    O on_commit só enfileira. As chamadas HTTP não rodam na transação nem na
+    request. A sync decide se aplica (gate: release em execução + flags).
+    ``actor`` vai para a nota do ticket quando não há transição.
     """
     from idac_drd.integrations.sync import sync_activity
 
-    transaction.on_commit(lambda: _safe(sync_activity, activity, actor))
+    _after_commit(sync_activity, activity, actor)
 
 
 def _mark_ready(activity: Activity) -> None:
@@ -223,7 +277,7 @@ def _notify_ready_later(activity: Activity) -> None:
     """Agenda o aviso de "pronta para iniciar" (Slack ao assignee + canal)."""
     from idac_drd.integrations.notify import notify_ready
 
-    transaction.on_commit(lambda: _safe(notify_ready, activity))
+    _after_commit(notify_ready, activity)
 
 
 def _notify_review_later(activity: Activity) -> None:
@@ -234,7 +288,7 @@ def _notify_review_later(activity: Activity) -> None:
     """
     from idac_drd.integrations.notify import notify_review
 
-    transaction.on_commit(lambda: _safe(notify_review, activity))
+    _after_commit(notify_review, activity)
 
 
 def _notify_rejection_later(activity: Activity, comment: str, reviewer=None) -> None:
@@ -242,7 +296,7 @@ def _notify_rejection_later(activity: Activity, comment: str, reviewer=None) -> 
     from idac_drd.integrations.notify import notify_rejection
 
     reviewer_name = reviewer.username if reviewer else ""
-    transaction.on_commit(lambda: _safe(notify_rejection, activity, comment, reviewer_name))
+    _after_commit(notify_rejection, activity, comment, reviewer_name)
 
 
 def _notify_blocked_later(activity: Activity, reason: str, actor=None) -> None:
@@ -250,21 +304,21 @@ def _notify_blocked_later(activity: Activity, reason: str, actor=None) -> None:
     from idac_drd.integrations.notify import notify_blocked
 
     actor_name = actor.username if actor else ""
-    transaction.on_commit(lambda: _safe(notify_blocked, activity, reason, actor_name))
+    _after_commit(notify_blocked, activity, reason, actor_name)
 
 
 def _notify_started_later(release: DataRelease) -> None:
     """Agenda o aviso de início de release (Slack no canal) para depois do commit."""
     from idac_drd.integrations.notify import notify_release_started
 
-    transaction.on_commit(lambda: _safe(notify_release_started, release))
+    _after_commit(notify_release_started, release)
 
 
 def _notify_complete_later(release: DataRelease) -> None:
     """Agenda o aviso de conclusão de release (Slack no canal) para depois do commit."""
     from idac_drd.integrations.notify import notify_release_complete
 
-    transaction.on_commit(lambda: _safe(notify_release_complete, release))
+    _after_commit(notify_release_complete, release)
 
 
 def _strip_marks(objectives: str) -> str:
@@ -695,11 +749,7 @@ def _cleanup_after_delete_later(*, release_status, github_repo, github_issue_num
     """Agenda o fechamento de issue/ticket de uma atividade removida (on_commit)."""
     from idac_drd.integrations.sync import cleanup_deleted_activity
 
-    transaction.on_commit(
-        lambda: _safe(
-            cleanup_deleted_activity, release_status, github_repo, github_issue_number, glpi_ticket_id, label
-        )
-    )
+    _after_commit(cleanup_deleted_activity, release_status, github_repo, github_issue_number, glpi_ticket_id, label)
 
 
 def archive_release(release: DataRelease) -> DataRelease:

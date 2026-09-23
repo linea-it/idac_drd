@@ -27,7 +27,7 @@ export function edgeStyleFor(status, theme) {
       animated: false,
     },
     waiting: {
-      stroke: theme.palette.divider,
+      stroke: theme.palette.waiting.main,
       strokeWidth: 1.5,
       animated: false,
     },

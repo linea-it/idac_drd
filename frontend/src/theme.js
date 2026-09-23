@@ -7,6 +7,11 @@ const theme = createTheme({
       main: "#0989cb",
       dark: "#31297f",
     },
+    // Waiting (dependência) ≠ cinza do To do, azul do In Progress, âmbar do Blocked.
+    waiting: {
+      main: "#5c6bc0",
+      contrastText: "#fff",
+    },
     text: {
       primary: "rgba(14,28,50,0.87)",
       secondary: "rgba(14,28,50,0.6)",

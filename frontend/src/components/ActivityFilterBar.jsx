@@ -1,9 +1,8 @@
-import DeleteIcon from "@mui/icons-material/Delete";
 import {
   Autocomplete,
+  Button,
   Chip,
   FormControlLabel,
-  IconButton,
   Stack,
   Switch,
   TextField,
@@ -81,19 +80,14 @@ export default function ActivityFilterBar({
         onChange={(v) => setFacet("areas", v)}
         getOptionLabel={(v) => v}
       />
-      {active && (
-        <IconButton
-          size="small"
-          aria-label="Clear filters"
-          title="Clear filters"
-          onClick={clear}
-        >
-          <DeleteIcon fontSize="small" />
-        </IconButton>
-      )}
       <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
         Showing {matched} of {total}
       </Typography>
+      {active && (
+        <Button size="small" aria-label="Clear filters" onClick={clear} sx={{ whiteSpace: "nowrap" }}>
+          Clear
+        </Button>
+      )}
       {showHideToggle && (
         <FormControlLabel
           sx={{ ml: 1.5 }}

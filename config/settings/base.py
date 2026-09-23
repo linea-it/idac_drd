@@ -32,6 +32,9 @@ DATABASES = {
     )
 }
 DATABASES["default"]["ATOMIC_REQUESTS"] = True
+# False: on_commit só enfileira; a view responde depois do commit.
+# Testes ligam True para o callback rodar na hora e a suíte ficar determinística.
+INTEGRATIONS_EAGER = False
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 ROOT_URLCONF = "config.urls"

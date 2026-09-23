@@ -9,7 +9,7 @@ import PauseIcon from "@mui/icons-material/Pause";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Box, Card, CardActionArea, CardContent, Chip, IconButton, Stack, Typography } from "@mui/material";
 import { displayStatus, isObjectiveChecked, objectiveItems, statusLabel } from "../activityStatus";
-import { statusColors } from "../statusColors";
+import { statusChipProps, statusColors } from "../statusColors";
 import {
   canControlTimer,
   timerGateMessage,
@@ -39,6 +39,7 @@ export default function StepBoard({
   onDuplicateActivity,
   onPlay,
   onPause,
+  pending = false,
   isSuperuser = false,
   userEmail = "",
   matchedIds = null,
@@ -99,7 +100,7 @@ export default function StepBoard({
                     size="small"
                     sx={{ color: "rgba(255,255,255,0.85)" }}
                     title="Move step left"
-                    disabled={step.id === firstStep?.id}
+                    disabled={step.id === firstStep?.id || pending}
                     onClick={() => onReorderStep(step, -1)}
                   >
                     <ArrowBackIcon fontSize="small" />
@@ -108,7 +109,7 @@ export default function StepBoard({
                     size="small"
                     sx={{ color: "rgba(255,255,255,0.85)" }}
                     title="Move step right"
-                    disabled={step.id === lastStep?.id}
+                    disabled={step.id === lastStep?.id || pending}
                     onClick={() => onReorderStep(step, 1)}
                   >
                     <ArrowForwardIcon fontSize="small" />
@@ -117,6 +118,7 @@ export default function StepBoard({
                     size="small"
                     sx={{ color: "rgba(255,255,255,0.85)" }}
                     title="Edit step"
+                    disabled={pending}
                     onClick={() => onEditStep(step)}
                   >
                     <EditIcon fontSize="small" />
@@ -125,6 +127,7 @@ export default function StepBoard({
                     size="small"
                     sx={{ color: "rgba(255,255,255,0.85)" }}
                     title="Delete step"
+                    disabled={pending}
                     onClick={() => onDeleteStep(step)}
                   >
                     <DeleteIcon fontSize="small" />
@@ -161,7 +164,7 @@ export default function StepBoard({
                   <CardActionArea onClick={() => onSelect(activity)}>
                     <CardContent sx={{ py: 1.5, pb: 1, "&:last-child": { pb: 1 } }}>
                       <Stack spacing={1}>
-                        <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Stack direction="row" spacing={0.5} alignItems="flex-start">
                           <Typography
                             variant="body2"
                             fontWeight={600}
@@ -178,6 +181,7 @@ export default function StepBoard({
                               <IconButton
                                 size="small"
                                 title="Make a copy"
+                                disabled={pending}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -189,7 +193,7 @@ export default function StepBoard({
                               <IconButton
                                 size="small"
                                 title="Move activity up"
-                                disabled={actIdx === 0}
+                                disabled={actIdx === 0 || pending}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -201,7 +205,7 @@ export default function StepBoard({
                               <IconButton
                                 size="small"
                                 title="Move activity down"
-                                disabled={actIdx === visibleActs.length - 1}
+                                disabled={actIdx === visibleActs.length - 1 || pending}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -247,7 +251,7 @@ export default function StepBoard({
                       alignItems="center"
                       sx={{ flex: 1, minWidth: 0 }}
                     >
-                      <Chip size="small" label={chip.label} color={chip.color} />
+                      <Chip size="small" label={chip.label} {...statusChipProps(chip.color)} />
                       {activity.assignee && (
                         <Chip
                           size="small"
@@ -262,7 +266,7 @@ export default function StepBoard({
                         color={activity.is_playing ? "success" : "primary"}
                         title={playBlocked ? "Finish the prerequisites first" : activity.is_playing ? "Pause" : "Play"}
                         aria-label={activity.is_playing ? "Pause" : "Play"}
-                        disabled={playBlocked}
+                        disabled={playBlocked || pending}
                         sx={{
                           flexShrink: 0,
                           width: 24,

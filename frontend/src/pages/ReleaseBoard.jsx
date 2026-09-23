@@ -5,7 +5,6 @@ import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import EditIcon from "@mui/icons-material/Edit";
 import PauseIcon from "@mui/icons-material/Pause";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
-import SaveIcon from "@mui/icons-material/Save";
 import {
   Alert,
   Box,
@@ -25,7 +24,7 @@ import {
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, appUrl } from "../api";
 import { releaseStatusLabel } from "../activityStatus";
 import { isFilterActive, matchesFilters } from "../activityFilters";
@@ -51,6 +50,9 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
   const [toast, setToast] = useState("");
   const [githubError, setGithubError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
+  const [bgNotice, setBgNotice] = useState(false);
   // anel de destaque no DAG: { id da activity editada, n incrementa a cada save }
   const [flash, setFlash] = useState(null);
   // dialogs de modo (draft/execução)
@@ -67,7 +69,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
   // filtros facetados (#25): vivem só aqui; troca Kanban↔DAG preserva
   const [filters, setFilters] = useState({ assignees: [], statuses: [], modes: [], areas: [] });
   const [hideUnmatched, setHideUnmatched] = useState(false);
-  // modo de edição explícito da execução: Edit habilita, Save finaliza
+  // modo de edição da execução: toggle. Alterações já gravam na hora.
   const [editMode, setEditMode] = useState(false);
 
   const doneCount = activities.filter((a) => a.status === "done").length;
@@ -75,7 +77,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
   const readonly = release?.status === "archived";
   const inExecution = release?.status === "active";
   const completed = release?.status === "completed";
-  // draft é sempre editável; em active/completed a edição é um modo explícito (Edit → Save)
+  // draft é sempre editável; em active/completed a edição é o toggle Edit
   const canEdit = draft || ((inExecution || completed) && editMode);
 
   // single source of match: só matchesFilters decide o que bate com o filtro
@@ -99,9 +101,11 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
     );
   }, [activities, userEmail]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const [rel, acts, us] = await Promise.all([
         api.get(`/api/releases/${releaseSlug}/`),
@@ -114,9 +118,11 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-    // best-effort: falha nos options não derruba o board; erro vira banner
+  }, [releaseSlug]);
+
+  const loadOptions = useCallback(async () => {
     try {
       const opts = await api.get("/api/github/options/");
       setGithubOptions(opts);
@@ -125,11 +131,39 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
       setGithubOptions({ repos: [], areas: [], sizes: [] });
       setGithubError(err.message);
     }
-  }, [releaseSlug]);
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    loadOptions();
+  }, [loadOptions]);
+
+  function applyActivity(data) {
+    if (!data || data.id == null) return;
+    const activity = { ...data };
+    delete activity.paused_activities;
+    setActivities((prev) => prev.map((a) => (a.id === activity.id ? { ...a, ...activity } : a)));
+    setSelected((prev) => (prev && prev.id === activity.id ? { ...prev, ...activity } : prev));
+  }
+
+  async function mutate(fn) {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
+    setError("");
+    try {
+      await fn();
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
+    }
+  }
 
   function selectActivity(activity) {
     setSelected(activity);
@@ -161,69 +195,80 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
   }, [activities]);
 
   async function saveActivity(payload) {
-    await api.patch(`/api/activities/${selected.id}/`, payload);
-    setFlash((f) => ({ id: selected.id, n: (f?.n ?? 0) + 1 }));
-    await load();
+    await mutate(async () => {
+      const data = await api.patch(`/api/activities/${selected.id}/`, payload);
+      applyActivity(data);
+      setFlash((f) => ({ id: selected.id, n: (f?.n ?? 0) + 1 }));
+      load({ silent: true });
+    });
   }
 
   async function playActivity(activity) {
-    setError("");
     try {
-      const data = await api.post(`/api/activities/${activity.id}/play/`, {});
-      const paused = data.paused_activities || [];
-      if (paused.length) {
-        const names = paused.map((p) => p.label).join(", ");
-        setToast(`Paused: ${names}`);
-      }
-      setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
-      await load();
-    } catch (err) {
-      setError(err.message);
+      await mutate(async () => {
+        const data = await api.post(`/api/activities/${activity.id}/play/`, {});
+        const paused = data.paused_activities || [];
+        applyActivity(data);
+        if (paused.length) {
+          const names = paused.map((p) => p.label).join(", ");
+          setToast(`Paused: ${names}`);
+        }
+        setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
+        load({ silent: true });
+      });
+    } catch {
+      /* banner */
     }
   }
 
   async function pauseActivity(activity) {
-    setError("");
     try {
-      await api.post(`/api/activities/${activity.id}/pause/`, {});
-      setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
-      await load();
-    } catch (err) {
-      setError(err.message);
+      await mutate(async () => {
+        const data = await api.post(`/api/activities/${activity.id}/pause/`, {});
+        applyActivity(data);
+        setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
+        load({ silent: true });
+      });
+    } catch {
+      /* banner */
     }
   }
 
   async function recordEffort(activity, minutes) {
-    setError("");
-    try {
-      await api.post(`/api/activities/${activity.id}/effort/`, { minutes });
+    await mutate(async () => {
+      const data = await api.post(`/api/activities/${activity.id}/effort/`, { minutes });
+      applyActivity(data);
       setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
-      await load();
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    }
+      load({ silent: true });
+    });
   }
 
   async function deleteActivity(activity) {
-    await api.del(`/api/activities/${activity.id}/`);
-    closeDrawer();
-    await load();
+    await mutate(async () => {
+      await api.del(`/api/activities/${activity.id}/`);
+      setActivities((prev) => prev.filter((a) => a.id !== activity.id));
+      closeDrawer();
+      load({ silent: true });
+    });
   }
 
   async function moveActivity(activity, payload) {
-    await api.post(`/api/activities/${activity.id}/move/`, payload);
-    await load();
+    await mutate(async () => {
+      const data = await api.post(`/api/activities/${activity.id}/move/`, payload);
+      applyActivity(data);
+      load({ silent: true });
+    });
   }
 
   async function duplicateActivity(activity) {
-    setError("");
     try {
-      const copy = await api.post(`/api/activities/${activity.id}/duplicate/`, {});
-      await load();
-      selectActivity(copy);
+      await mutate(async () => {
+        const copy = await api.post(`/api/activities/${activity.id}/duplicate/`, {});
+        setActivities((prev) => [...prev, copy]);
+        selectActivity(copy);
+        load({ silent: true });
+      });
     } catch (err) {
-      setError(err.message);
       throw err;
     }
   }
@@ -239,35 +284,50 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
   }
 
   async function createActivity(payload) {
-    setError("");
     try {
-      await api.post(`/api/releases/${releaseSlug}/activities/`, payload);
-      await load();
+      await mutate(async () => {
+        const created = await api.post(`/api/releases/${releaseSlug}/activities/`, payload);
+        setActivities((prev) => [...prev, created]);
+        load({ silent: true });
+      });
     } catch (err) {
-      setError(err.message);
       throw err;
     }
   }
 
   async function confirmDeleteDraft() {
-    setError("");
     try {
-      await api.del(`/api/releases/${releaseSlug}/`);
-      window.location.href = document.querySelector(".navbar-brand")?.getAttribute("href") || appUrl("/");
-    } catch (err) {
-      setError(err.message);
+      await mutate(async () => {
+        await api.del(`/api/releases/${releaseSlug}/`);
+        window.location.href = document.querySelector(".navbar-brand")?.getAttribute("href") || appUrl("/");
+      });
+    } catch {
       setDeleteDraftOpen(false);
     }
   }
 
   async function archive() {
-    await api.patch(`/api/releases/${releaseSlug}/`, { status: "archived" });
-    await load();
+    try {
+      await mutate(async () => {
+        const data = await api.patch(`/api/releases/${releaseSlug}/`, { status: "archived" });
+        setRelease(data);
+        load({ silent: true });
+      });
+    } catch {
+      /* banner */
+    }
   }
 
   async function unarchive() {
-    await api.patch(`/api/releases/${releaseSlug}/`, { status: "active" });
-    await load();
+    try {
+      await mutate(async () => {
+        const data = await api.patch(`/api/releases/${releaseSlug}/`, { status: "active" });
+        setRelease(data);
+        load({ silent: true });
+      });
+    } catch {
+      /* banner */
+    }
   }
 
   async function download() {
@@ -297,86 +357,92 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
     }
   }
 
-  function cancelEdit() {
-    // desiste do modo de edição: recarrega do servidor (alterações já feitas
-    // foram salvas imediatamente; o reload devolve o estado real)
-    setEditMode(false);
-    load();
-  }
-
   async function saveStep(e) {
     e.preventDefault();
-    setError("");
     try {
-      const resources = stepResources
-        .filter((r) => r.url.trim())
-        .map((r) => ({ label: r.label.trim(), url: r.url.trim() }));
-      if (editStep) {
-        await api.patch(`/api/releases/${releaseSlug}/steps/${editStep.id}/`, {
-          label: stepLabel,
-          color: stepColor,
-          resources,
-        });
-      } else {
-        await api.post(`/api/releases/${releaseSlug}/steps/`, {
-          label: stepLabel,
-          color: stepColor,
-          resources,
-        });
-      }
-      setStepOpen(false);
-      setEditStep(null);
-      setStepLabel("");
-      setStepColor("");
-      setStepResources([]);
-      await load();
-    } catch (err) {
-      setError(err.message);
+      await mutate(async () => {
+        const resources = stepResources
+          .filter((r) => r.url.trim())
+          .map((r) => ({ label: r.label.trim(), url: r.url.trim() }));
+        if (editStep) {
+          await api.patch(`/api/releases/${releaseSlug}/steps/${editStep.id}/`, {
+            label: stepLabel,
+            color: stepColor,
+            resources,
+          });
+        } else {
+          await api.post(`/api/releases/${releaseSlug}/steps/`, {
+            label: stepLabel,
+            color: stepColor,
+            resources,
+          });
+        }
+        setStepOpen(false);
+        setEditStep(null);
+        setStepLabel("");
+        setStepColor("");
+        setStepResources([]);
+        load({ silent: true });
+      });
+    } catch {
+      /* banner */
     }
   }
 
   async function confirmDeleteStep() {
     if (!deleteTarget) return;
-    setError("");
     try {
-      await api.del(`/api/releases/${releaseSlug}/steps/${deleteTarget.id}/`);
-      setDeleteTarget(null);
-      await load();
-    } catch (err) {
-      setError(err.message);
+      await mutate(async () => {
+        await api.del(`/api/releases/${releaseSlug}/steps/${deleteTarget.id}/`);
+        setDeleteTarget(null);
+        load({ silent: true });
+      });
+    } catch {
+      /* banner */
     }
   }
 
   async function reorderStep(step, dir) {
-    setError("");
     try {
-      await api.patch(`/api/releases/${releaseSlug}/steps/${step.id}/`, { direction: dir });
-      await load();
-    } catch (err) {
-      setError(err.message);
+      await mutate(async () => {
+        await api.patch(`/api/releases/${releaseSlug}/steps/${step.id}/`, { direction: dir });
+        load({ silent: true });
+      });
+    } catch {
+      /* banner */
     }
   }
 
-
-  async function renameRelease() {
-    setError("");
+  async function renameRelease(e) {
+    e?.preventDefault();
     try {
-      await api.patch(`/api/releases/${releaseSlug}/`, { name: renameName.trim() });
-      setRenameOpen(false);
-      await load();
-    } catch (err) {
-      setError(err.message);
+      await mutate(async () => {
+        const data = await api.patch(`/api/releases/${releaseSlug}/`, { name: renameName.trim() });
+        setRelease(data);
+        setRenameOpen(false);
+        load({ silent: true });
+      });
+    } catch {
+      /* banner */
     }
   }
 
   async function startExecution() {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
     setError("");
     try {
-      await api.post(`/api/releases/${releaseSlug}/start/`);
+      const data = await api.post(`/api/releases/${releaseSlug}/start/`);
+      setRelease(data);
       setStartOpen(false);
-      await load();
+      setBgNotice(true);
+      load({ silent: true });
     } catch (err) {
       setError(err.message);
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
     }
   }
 
@@ -400,6 +466,12 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
 
   return (
     <Stack spacing={2}>
+      {pending && <LinearProgress />}
+      {bgNotice && (
+        <Alert severity="info" onClose={() => setBgNotice(false)}>
+          Creating GitHub issues and GLPI tickets in the background.
+        </Alert>
+      )}
       <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1}>
         <div>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -453,12 +525,25 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
             <ToggleButton value="kanban">Kanban</ToggleButton>
             <ToggleButton value="dag">DAG</ToggleButton>
           </ToggleButtonGroup>
-          {/* construção: adicionar steps/atividades (draft ou modo de edição) */}
+          {/* estrutura: toggle de edição, depois adicionar step/atividade */}
+          {(inExecution || completed) && (
+            <ToggleButton
+              size="small"
+              value="edit"
+              selected={editMode}
+              onChange={() => setEditMode((on) => !on)}
+              sx={{ whiteSpace: "nowrap", px: 1.5, textTransform: "none" }}
+            >
+              <EditIcon fontSize="small" sx={{ mr: 0.5 }} />
+              Edit
+            </ToggleButton>
+          )}
           {(draft || editMode) && (
             <>
               <Button
                 startIcon={<AddIcon />}
-                variant="contained"
+                variant="outlined"
+                disabled={pending}
                 sx={{ whiteSpace: "nowrap" }}
                 onClick={() => {
                   setEditStep(null);
@@ -472,7 +557,8 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
               </Button>
               <Button
                 startIcon={<AddIcon />}
-                variant="contained"
+                variant="outlined"
+                disabled={pending}
                 sx={{ whiteSpace: "nowrap" }}
                 onClick={() => setAddOpen(true)}
               >
@@ -480,12 +566,13 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
               </Button>
             </>
           )}
-          {/* ciclo de vida: iniciar/arquivar/desarquivar */}
+          {/* ciclo de vida: só Start execution é preenchido */}
           {draft && isStaff && (
             <Button
               startIcon={<PlayArrowIcon />}
               variant="contained"
               color="success"
+              disabled={pending}
               sx={{ whiteSpace: "nowrap" }}
               onClick={() => setStartOpen(true)}
             >
@@ -493,7 +580,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
             </Button>
           )}
           {(inExecution || completed) && isStaff && (
-            <Button variant="outlined" color="warning" sx={{ whiteSpace: "nowrap" }} onClick={archive}>
+            <Button variant="outlined" color="warning" disabled={pending} sx={{ whiteSpace: "nowrap" }} onClick={archive}>
               Archive
             </Button>
           )}
@@ -502,6 +589,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
               startIcon={<DeleteIcon />}
               variant="outlined"
               color="error"
+              disabled={pending}
               sx={{ whiteSpace: "nowrap" }}
               onClick={() => setDeleteDraftOpen(true)}
             >
@@ -509,42 +597,16 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
             </Button>
           )}
           {readonly && isStaff && (
-            <Button variant="outlined" color="success" sx={{ whiteSpace: "nowrap" }} onClick={unarchive}>
+            <Button variant="outlined" color="success" disabled={pending} sx={{ whiteSpace: "nowrap" }} onClick={unarchive}>
               Unarchive
             </Button>
           )}
-          {/* modo de edição: Edit → Cancel (descarta) + Save (finaliza) */}
-          {(inExecution || completed) &&
-            (editMode ? (
-              // par de ação: Cancel e Save quebram juntos (wrap do pai não os separa)
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Button color="error" sx={{ whiteSpace: "nowrap" }} onClick={cancelEdit}>
-                  Cancel
-                </Button>
-                <Button
-                  startIcon={<SaveIcon />}
-                  variant="contained"
-                  sx={{ whiteSpace: "nowrap" }}
-                  onClick={() => setEditMode(false)}
-                >
-                  Save
-                </Button>
-              </Stack>
-            ) : (
-              <Button
-                startIcon={<EditIcon />}
-                variant="outlined"
-                sx={{ whiteSpace: "nowrap" }}
-                onClick={() => setEditMode(true)}
-              >
-                Edit
-              </Button>
-            ))}
-          {/* documentos: exportar o draft (em edição) / baixar o relatório (fora) */}
+          {/* documentos */}
           {canEdit && (
             <Button
               startIcon={<FileDownloadIcon />}
-              variant="outlined"
+              variant="text"
+              disabled={pending}
               sx={{ whiteSpace: "nowrap" }}
               onClick={exportDraft}
             >
@@ -554,7 +616,8 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
           {!editMode && (
             <Button
               startIcon={<DownloadIcon />}
-              variant="outlined"
+              variant="text"
+              disabled={pending}
               sx={{ whiteSpace: "nowrap" }}
               onClick={download}
             >
@@ -579,6 +642,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
               size="small"
               startIcon={<PauseIcon />}
               onClick={() => pauseActivity(playingNow)}
+              disabled={pending}
             >
               Pause
             </Button>
@@ -598,13 +662,11 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
       {inExecution && release?.started_at && (
         <Alert severity="info">
           Started {new Date(release.started_at).toLocaleString()}.
-          {editMode && " · Changes save as you go. Choose Save when you're done."}
         </Alert>
       )}
       {release?.status === "completed" && (
         <Alert severity="success">
           All activities are done.
-          {editMode && " · Changes save as you go. Choose Save when you're done."}
         </Alert>
       )}
       {readonly && (
@@ -633,6 +695,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
           onSelect={selectActivity}
           editable={canEdit}
           onMoveActivity={moveActivityDir}
+          pending={pending}
           onDuplicateActivity={duplicateActivity}
           onPlay={!draft && !readonly ? playActivity : undefined}
           onPause={!draft && !readonly ? pauseActivity : undefined}
@@ -659,6 +722,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
           flash={flash}
           onPlay={!draft && !readonly ? playActivity : undefined}
           onPause={!draft && !readonly ? pauseActivity : undefined}
+          pending={pending}
           isSuperuser={isSuperuser}
           userEmail={userEmail}
         />
@@ -758,8 +822,8 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
             </Stack>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setStepOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={!stepLabel}>
+            <Button onClick={() => setStepOpen(false)} disabled={pending}>Cancel</Button>
+            <Button type="submit" variant="contained" disabled={!stepLabel || pending}>
               {editStep ? "Save" : "Add"}
             </Button>
           </DialogActions>
@@ -773,8 +837,8 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDraftOpen(false)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={confirmDeleteDraft}>
+          <Button onClick={() => setDeleteDraftOpen(false)} disabled={pending}>Cancel</Button>
+          <Button color="error" variant="contained" disabled={pending} onClick={confirmDeleteDraft}>
             Delete
           </Button>
         </DialogActions>
@@ -787,8 +851,8 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={confirmDeleteStep}>
+          <Button onClick={() => setDeleteTarget(null)} disabled={pending}>Cancel</Button>
+          <Button color="error" variant="contained" disabled={pending} onClick={confirmDeleteStep}>
             Delete
           </Button>
         </DialogActions>
@@ -813,17 +877,18 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
             </Stack>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setRenameOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="contained" color="success">
+            <Button onClick={() => setRenameOpen(false)} disabled={pending}>Cancel</Button>
+            <Button type="submit" variant="contained" color="success" disabled={pending}>
               Rename
             </Button>
           </DialogActions>
         </form>
       </Dialog>
-      <Dialog open={startOpen} onClose={() => setStartOpen(false)} fullWidth maxWidth="xs">
+      <Dialog open={startOpen} onClose={() => { if (!pending) setStartOpen(false); }} fullWidth maxWidth="xs">
         <DialogTitle>Start execution?</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
+            {error && <Alert severity="error">{error}</Alert>}
             <Typography variant="body2">
               {activities.length} activities · {withoutAssignee} without assignee · {withoutRepo} using default repo (idac_drd)
             </Typography>
@@ -833,9 +898,9 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setStartOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="success" onClick={startExecution}>
-            Start execution
+          <Button onClick={() => setStartOpen(false)} disabled={pending}>Cancel</Button>
+          <Button variant="contained" color="success" onClick={startExecution} disabled={pending}>
+            {pending ? "Starting…" : "Start execution"}
           </Button>
         </DialogActions>
       </Dialog>

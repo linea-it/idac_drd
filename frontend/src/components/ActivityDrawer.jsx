@@ -285,6 +285,7 @@ export default function ActivityDrawer({
   }
 
   async function handleMove() {
+    setSaving(true);
     setError("");
     try {
       await onMove(activity, {
@@ -294,6 +295,8 @@ export default function ActivityDrawer({
       onClose();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -778,7 +781,7 @@ export default function ActivityDrawer({
                       ))}
                     </Select>
                   </FormControl>
-                  <Button variant="outlined" onClick={handleMove}>
+                  <Button variant="outlined" onClick={handleMove} disabled={saving}>
                     Move here
                   </Button>
                 </Stack>
