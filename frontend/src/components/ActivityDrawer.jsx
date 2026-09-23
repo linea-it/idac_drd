@@ -87,7 +87,7 @@ export default function ActivityDrawer({
   const [size, setSize] = useState("");
   const [stepId, setStepId] = useState("");
   const [dependsOnIds, setDependsOnIds] = useState([]);
-  const [manualMinutes, setManualMinutes] = useState("");
+  const [manualHours, setManualHours] = useState("");
   const [showManualEffort, setShowManualEffort] = useState(false);
   const [resources, setResources] = useState([]);
   const [moveStepId, setMoveStepId] = useState("");
@@ -130,7 +130,7 @@ export default function ActivityDrawer({
     setAssigneeId(activity.assignee?.id || "");
     setNotes(activity.notes || "");
     setBlockedReason(activity.blocked_reason || "");
-    setManualMinutes("");
+    setManualHours("");
     setShowManualEffort(false);
     setLabel(activity.label);
     setDescription(activity.description || "");
@@ -165,8 +165,10 @@ export default function ActivityDrawer({
 
   if (!activity) return null;
 
-  // estrutura só se edita em draft ou no modo de edição da execução (canEdit)
+  // estrutura só se edita em draft ou no modo de edição da execução (canEdit).
+  // links ficam disponíveis sempre, inclusive com a atividade concluída.
   const structDisabled = readonly || !canEdit;
+  const resourcesDisabled = readonly;
   const canTimer = canControlTimer(activity, { isSuperuser, userEmail });
   const gateMsg = timerGateMessage(timerGateReason(activity, { isSuperuser, userEmail }));
   const objectiveLines = objectives
@@ -221,8 +223,12 @@ export default function ActivityDrawer({
       blocked_reason: blockedReason,
     };
     // objetivos são lista de seleção do fluxo de execução: a marcação persiste
-    // mesmo sem o modo de edição estrutural (canEdit)
+    // mesmo sem o modo de edição estrutural (canEdit). Links também: qualquer
+    // atividade, inclusive concluída, aceita resources fora do modo de edição.
     payload.objectives = markedObjectives(objectiveLines, checkedObjectives);
+    payload.resources = resources
+      .filter((r) => r.url.trim())
+      .map((r) => ({ label: r.label.trim(), url: r.url.trim() }));
     if (canEdit) {
       Object.assign(payload, {
         mode,
@@ -233,9 +239,6 @@ export default function ActivityDrawer({
         github_repo: githubRepo,
         area,
         size,
-        resources: resources
-          .filter((r) => r.url.trim())
-          .map((r) => ({ label: r.label.trim(), url: r.url.trim() })),
       });
     }
     return payload;
@@ -269,13 +272,21 @@ export default function ActivityDrawer({
     }
   }
 
+  function openEffortEditor() {
+    const hours = Math.round((activity.effort_seconds / 3600) * 100) / 100;
+    setManualHours(hours > 0 ? String(hours) : "");
+    setShowManualEffort(true);
+  }
+
   async function submitManualEffort() {
-    if (!manualMinutes || Number(manualMinutes) <= 0) return;
+    const hours = Number(manualHours);
+    const minutes = Math.round(hours * 60);
+    if (!manualHours || !(hours > 0) || hours > 24 || minutes < 1) return;
     setError("");
     setSaving(true);
     try {
-      await onRecordEffort(activity, Number(manualMinutes));
-      setManualMinutes("");
+      await onRecordEffort(activity, minutes);
+      setManualHours("");
       setShowManualEffort(false);
     } catch (err) {
       setError(err.message);
@@ -408,71 +419,91 @@ export default function ActivityDrawer({
                           Play
                         </Button>
                       )}
-                      {activity.effort_seconds > 0 && formatEffort(activity.effort_seconds) ? (
-                        <Typography variant="body2" color="text.secondary">
-                          {activity.is_playing ? "In Progress · " : "Effort · "}
-                          {formatEffort(activity.effort_seconds)}
-                        </Typography>
-                      ) : (
-                        showManualEffort &&
-                        status === "in_progress" &&
-                        activity.status === "in_progress" &&
-                        !activity.is_playing &&
-                        onRecordEffort && (
-                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ ml: "auto" }}>
-                            <TextField
-                              size="small"
-                              type="number"
-                              label="Minutes"
-                              value={manualMinutes}
-                              onChange={(e) => setManualMinutes(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Escape") {
-                                  setShowManualEffort(false);
-                                  setManualMinutes("");
-                                  return;
-                                }
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  submitManualEffort();
-                                }
-                              }}
-                              inputProps={{ min: 1, step: 1, max: 24 * 60 }}
-                              sx={{ width: 120 }}
-                              autoFocus
-                            />
-                            <Button
-                              size="small"
-                              variant="text"
-                              disabled={saving || !manualMinutes || Number(manualMinutes) <= 0}
-                              aria-label="Save effort"
-                              onClick={submitManualEffort}
-                              sx={{ textTransform: "none", minWidth: 0 }}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              size="small"
-                              variant="text"
-                              color="inherit"
-                              disabled={saving}
-                              aria-label="Cancel effort"
-                              onClick={() => {
+                      {showManualEffort && !activity.is_playing && onRecordEffort ? (
+                        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ ml: "auto" }}>
+                          <TextField
+                            size="small"
+                            type="number"
+                            label="Hours"
+                            value={manualHours}
+                            onChange={(e) => setManualHours(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
                                 setShowManualEffort(false);
-                                setManualMinutes("");
-                              }}
-                              sx={{ color: "text.secondary", textTransform: "none", minWidth: 0, px: 0.5 }}
-                            >
-                              Cancel
-                            </Button>
-                          </Stack>
-                        )
-                      )}
-                      {!showManualEffort &&
+                                setManualHours("");
+                                return;
+                              }
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                submitManualEffort();
+                              }
+                            }}
+                            inputProps={{ min: 0.25, step: 0.25, max: 24 }}
+                            sx={{ width: 120 }}
+                            autoFocus
+                          />
+                          <Button
+                            size="small"
+                            variant="text"
+                            disabled={
+                              saving ||
+                              !(Number(manualHours) > 0) ||
+                              Number(manualHours) > 24 ||
+                              Math.round(Number(manualHours) * 60) < 1
+                            }
+                            aria-label="Save effort"
+                            onClick={submitManualEffort}
+                            sx={{ textTransform: "none", minWidth: 0 }}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="inherit"
+                            disabled={saving}
+                            aria-label="Cancel effort"
+                            onClick={() => {
+                              setShowManualEffort(false);
+                              setManualHours("");
+                            }}
+                            sx={{ color: "text.secondary", textTransform: "none", minWidth: 0, px: 0.5 }}
+                          >
+                            Cancel
+                          </Button>
+                        </Stack>
+                      ) : activity.effort_seconds > 0 && formatEffort(activity.effort_seconds) ? (
+                        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ ml: "auto" }}>
+                          <Typography variant="body2" color="text.secondary">
+                            {activity.is_playing ? "In Progress · " : "Effort · "}
+                            {formatEffort(activity.effort_seconds)}
+                          </Typography>
+                          {!activity.is_playing &&
+                            status === "in_progress" &&
+                            activity.status === "in_progress" &&
+                            onRecordEffort && (
+                              <Button
+                                size="small"
+                                variant="text"
+                                color="inherit"
+                                sx={{
+                                  color: "text.secondary",
+                                  textTransform: "none",
+                                  fontWeight: 400,
+                                  minWidth: 0,
+                                  px: 0.5,
+                                }}
+                                disabled={saving}
+                                onClick={openEffortEditor}
+                              >
+                                Edit
+                              </Button>
+                            )}
+                        </Stack>
+                      ) : (
+                        !activity.is_playing &&
                         status === "in_progress" &&
                         activity.status === "in_progress" &&
-                        !activity.is_playing &&
-                        !(activity.effort_seconds > 0) &&
                         onRecordEffort && (
                           <Button
                             size="small"
@@ -487,11 +518,15 @@ export default function ActivityDrawer({
                               px: 0.5,
                             }}
                             disabled={saving}
-                            onClick={() => setShowManualEffort(true)}
+                            onClick={() => {
+                              setManualHours("");
+                              setShowManualEffort(true);
+                            }}
                           >
                             Add Effort
                           </Button>
-                        )}
+                        )
+                      )}
                     </Stack>
                   )}
                 {!readonly &&
@@ -636,6 +671,47 @@ export default function ActivityDrawer({
           </Accordion>
           <Accordion disableGutters>
             <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ "& .MuiAccordionSummary-content": { my: 0.5 } }}>
+              <Typography variant="overline">Links</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={1}>
+                {resources.map((r, i) => (
+                  <Stack key={i} direction="row" spacing={1} alignItems="flex-start">
+                    <TextField
+                      size="small"
+                      label="Label"
+                      value={r.label}
+                      onChange={(e) => updateResource(i, { label: e.target.value })}
+                      disabled={resourcesDisabled}
+                      sx={{ flex: 1 }}
+                    />
+                    <TextField
+                      size="small"
+                      label="URL"
+                      placeholder="https://docs.google.com/…"
+                      value={r.url}
+                      onChange={(e) => updateResource(i, { url: e.target.value })}
+                      disabled={resourcesDisabled}
+                      sx={{ flex: 2 }}
+                    />
+                    <IconButton size="small" onClick={() => removeResource(i)} disabled={resourcesDisabled} title="Remove link">
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
+                ))}
+                <Button
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={addResource}
+                  disabled={resourcesDisabled}
+                >
+                  Add link
+                </Button>
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
+          <Accordion disableGutters>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ "& .MuiAccordionSummary-content": { my: 0.5 } }}>
               <Typography variant="overline">Details</Typography>
             </AccordionSummary>
             <AccordionDetails>
@@ -699,41 +775,6 @@ export default function ActivityDrawer({
                   onChange={(e) => setObjectives(e.target.value)}
                   disabled={structDisabled}
                 />
-                <Box>
-                  <Typography variant="overline">Resources</Typography>
-                  {resources.map((r, i) => (
-                    <Stack key={i} direction="row" spacing={1} sx={{ mb: 1, alignItems: "flex-start" }}>
-                      <TextField
-                        size="small"
-                        label="Label"
-                        value={r.label}
-                        onChange={(e) => updateResource(i, { label: e.target.value })}
-                        disabled={structDisabled}
-                        sx={{ flex: 1 }}
-                      />
-                      <TextField
-                        size="small"
-                        label="URL"
-                        placeholder="https://docs.google.com/…"
-                        value={r.url}
-                        onChange={(e) => updateResource(i, { url: e.target.value })}
-                        disabled={structDisabled}
-                        sx={{ flex: 2 }}
-                      />
-                      <IconButton size="small" onClick={() => removeResource(i)} disabled={structDisabled} title="Remove resource">
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Stack>
-                  ))}
-                  <Button
-                    size="small"
-                    startIcon={<AddIcon />}
-                    onClick={addResource}
-                    disabled={structDisabled}
-                  >
-                    Add resource
-                  </Button>
-                </Box>
                 <FormControl fullWidth size="small" disabled={structDisabled}>
                   <InputLabel>Step</InputLabel>
                   <Select label="Step" value={stepId} onChange={(e) => setStepId(e.target.value)}>

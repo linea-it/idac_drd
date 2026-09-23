@@ -98,14 +98,20 @@ test("no draft envia o payload estrutural completo também", async () => {
 
 test("em execução sem modo de edição a estrutura fica desabilitada", async () => {
   const first = renderDrawer(false, false);
-  // TextField MUI: input com disabled prop de verdade
+  // TextField MUI: input com disabled prop de verdade. O label da atividade
+  // continua travado; links (resources) seguem editáveis.
+  fireEvent.click(screen.getByRole("button", { name: "Details" }));
   expect(screen.getByLabelText("Label")).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", { name: "Links" }));
+  expect(screen.getByRole("button", { name: "Add link" })).toBeEnabled();
   first.unmount();
-  // e o payload do Save não inclui a estrutura fora do modo de edição
+  // e o payload do Save não inclui a estrutura fora do modo de edição,
+  // mas sempre manda os resources
   const { onSave } = renderDrawer(false, false);
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(onSave).toHaveBeenCalled());
   expect(onSave).not.toHaveBeenCalledWith(expect.objectContaining({ label: "Step 1" }));
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ resources: [] }));
 });
 
 test("status fica desabilitado em draft (transição só após o start)", async () => {
@@ -221,13 +227,14 @@ test("em execução o status vira ação: Complete em in_progress", async () => 
   view.unmount();
 });
 
-test("Complete fica desabilitado sem effort nem play", () => {
+test("Complete fica desabilitado sem effort nem play", async () => {
   const withAssignee = {
     ...activity,
     effort_seconds: 0,
     is_playing: false,
     assignee: { id: 1, email: "alice@linea.org.br", name: "Alice" },
   };
+  const onRecordEffort = vi.fn().mockResolvedValue(undefined);
   const view = render(
     <ActivityDrawer
       open
@@ -244,7 +251,7 @@ test("Complete fica desabilitado sem effort nem play", () => {
       onDelete={() => {}}
       onMove={() => {}}
       onPlay={() => {}}
-      onRecordEffort={() => {}}
+      onRecordEffort={onRecordEffort}
       userEmail="alice@linea.org.br"
     />,
   );
@@ -255,15 +262,19 @@ test("Complete fica desabilitado sem effort nem play", () => {
   expect(
     screen.getByText("No effort yet — use Play or Add Effort first"),
   ).toBeInTheDocument();
-  expect(screen.queryByLabelText("Minutes")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Hours")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Add Effort" }));
-  expect(screen.getByLabelText("Minutes")).toBeInTheDocument();
+  expect(screen.getByLabelText("Hours")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Save effort" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Cancel effort" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Add Effort" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Cancel effort" }));
-  expect(screen.queryByLabelText("Minutes")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Hours")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Add Effort" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Add Effort" }));
+  fireEvent.change(screen.getByLabelText("Hours"), { target: { value: "1.5" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save effort" }));
+  await waitFor(() => expect(onRecordEffort).toHaveBeenCalledWith(withAssignee, 90));
   view.unmount();
 });
 

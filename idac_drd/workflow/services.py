@@ -153,8 +153,31 @@ def pause_activity(activity: Activity, *, actor=None) -> Activity:
 _MAX_MANUAL_EFFORT_MINUTES = 24 * 60
 
 
+def _trim_closed_effort(activity: Activity, *, seconds: float) -> None:
+    """Encurta sessões fechadas, da mais recente para a mais antiga, até cortar ``seconds``."""
+    remaining = seconds
+    sessions = activity.work_sessions.filter(ended_at__isnull=False).order_by("-started_at", "-id")
+    for session in sessions:
+        if remaining <= 1:
+            return
+        duration = (session.ended_at - session.started_at).total_seconds()
+        if duration <= remaining + 0.001:
+            remaining -= duration
+            session.delete()
+        else:
+            session.ended_at = session.ended_at - timedelta(seconds=remaining)
+            session.save(update_fields=["ended_at"])
+            return
+    if remaining > 1:
+        raise WorkflowError("Couldn't reduce effort by that much.")
+
+
 def record_manual_effort(activity: Activity, *, minutes: float, actor=None) -> Activity:
-    """Registra effort fechado quando a pessoa esqueceu o Play (só se ainda não há sessão)."""
+    """Define o effort total (em minutos) enquanto a atividade está In progress e pausada.
+
+    O valor digitado é o total, não um acréscimo. Sem sessão, cria uma entrada manual.
+    Com sessões fechadas, soma ou encurta até bater no total. Timer ligado não se edita.
+    """
     _assert_mutable(activity.release)
     if activity.release.status == DataRelease.Status.DRAFT:
         raise WorkflowError("Start the release before changing activity status.")
@@ -164,8 +187,8 @@ def record_manual_effort(activity: Activity, *, minutes: float, actor=None) -> A
         raise WorkflowError("Only the assignee or a superuser can record effort.")
     if activity.status != Activity.Status.IN_PROGRESS:
         raise WorkflowError("Record manual effort only while In progress.")
-    if activity.work_sessions.exists():
-        raise WorkflowError("Effort already recorded — use Play/Pause to add more time.")
+    if activity.work_sessions.filter(ended_at__isnull=True).exists():
+        raise WorkflowError("Pause the timer before editing effort.")
     try:
         minutes = float(minutes)
     except (TypeError, ValueError) as exc:
@@ -176,15 +199,23 @@ def record_manual_effort(activity: Activity, *, minutes: float, actor=None) -> A
         raise WorkflowError(f"Minutes cannot exceed {_MAX_MANUAL_EFFORT_MINUTES} (24h).")
 
     now = timezone.now()
-    seconds = minutes * 60
-    ActivityWorkSession.objects.create(
-        activity=activity,
-        assignee_id=activity.assignee_id,
-        started_at=now - timedelta(seconds=seconds),
-        ended_at=now,
-        end_reason=ActivityWorkSession.EndReason.MANUAL,
-        actor=actor if getattr(actor, "pk", None) else None,
-    )
+    target = minutes * 60
+    delta = target - activity_effort_seconds(activity, now=now)
+    if abs(delta) < 1:
+        return activity
+
+    with transaction.atomic():
+        if delta > 0:
+            ActivityWorkSession.objects.create(
+                activity=activity,
+                assignee_id=activity.assignee_id,
+                started_at=now - timedelta(seconds=delta),
+                ended_at=now,
+                end_reason=ActivityWorkSession.EndReason.MANUAL,
+                actor=actor if getattr(actor, "pk", None) else None,
+            )
+        else:
+            _trim_closed_effort(activity, seconds=-delta)
     return activity
 
 
