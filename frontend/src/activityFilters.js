@@ -9,16 +9,24 @@ export const UNASSIGNED = "__unassigned__";
 
 // filters: { assignees: (number|UNASSIGNED)[], statuses: string[], modes: string[], areas: string[] }
 // Regras:
-// - Status compara displayStatus(activity) (status efetivo: todo sem
-//   prerequisites_met aparece como "waiting"), nunca activity.status cru.
+// - Status compara filterStatus(activity): displayStatus, com in_progress
+//   sem sessão (tag Paused) separado de In Progress (timer ligado).
 // - "blocked" no facet é só o status manual do banco.
 // - Assignee compara activity.assignee?.id, com UNASSIGNED para sem assignee.
 // - Mode: activity.mode ("manual" | "nifi").
 // - Area: string exata; área vazia só entra se o facet incluir "" (a barra
 //   não oferece essa opção no v1).
+// Mesma distinção do chip: in_progress com timer ligado fica "in_progress";
+// in_progress sem sessão é a tag Paused.
+export function filterStatus(activity) {
+  const status = displayStatus(activity);
+  if (status === "in_progress" && !activity.is_playing) return "paused";
+  return status;
+}
+
 export function matchesFilters(activity, filters) {
   if (!filters) return true;
-  const status = displayStatus(activity);
+  const status = filterStatus(activity);
   const assigneeKey = activity.assignee?.id ?? UNASSIGNED;
   const mode = activity.mode ?? "manual";
   const area = activity.area ?? "";
@@ -33,7 +41,7 @@ export function matchesFilters(activity, filters) {
 
 // Ordem canônica dos valores — estabiliza a identidade/ordem das options dos
 // Autocompletes entre renders.
-const STATUS_ORDER = ["todo", "waiting", "blocked", "in_progress", "in_review", "done"];
+const STATUS_ORDER = ["todo", "waiting", "blocked", "in_progress", "paused", "in_review", "done"];
 const MODE_ORDER = ["manual", "nifi"];
 const byOrder = (order) => (a, b) => order.indexOf(a) - order.indexOf(b);
 
@@ -55,7 +63,7 @@ export function buildFilterOptions(activities) {
         label: a.assignee ? a.assignee.name || a.assignee.email : "Unassigned",
       });
     }
-    statuses.add(displayStatus(a));
+    statuses.add(filterStatus(a));
     modes.add(a.mode ?? "manual");
     if (a.area) areas.add(a.area);
   }

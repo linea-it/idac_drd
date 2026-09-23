@@ -130,7 +130,7 @@ describe("buildReleaseReport", () => {
     // resources: no detail da activity (seção 5), no header do step e na seção 8
     expect(md).toContain("[Setup guide](https://docs.google.com/d/abc)");
     expect(md).toContain("[Schema docs](https://docs.google.com/d/schema)");
-    expect(md).toContain("## 8. References & Resources");
+    expect(md).toContain("## 8. References & Links");
     expect(md).toContain("## 9. Appendix — Full Transition Log");
     expect(md).toContain("token issued");
   });

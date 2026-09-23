@@ -30,6 +30,7 @@ export default function ActivityDagBoard({
   filterActive = false,
   onPlay,
   onPause,
+  onAddResource,
   pending = false,
   isSuperuser = false,
   userEmail = "",
@@ -46,6 +47,7 @@ export default function ActivityDagBoard({
         filterActive={filterActive}
         onPlay={onPlay}
         onPause={onPause}
+        onAddResource={onAddResource}
         pending={pending}
         isSuperuser={isSuperuser}
         userEmail={userEmail}
@@ -64,6 +66,7 @@ function DagInner({
   filterActive,
   onPlay,
   onPause,
+  onAddResource,
   pending,
   isSuperuser,
   userEmail,
@@ -194,6 +197,7 @@ function DagInner({
             flash: flashActive && flash?.id === n.id,
             onPlay,
             onPause,
+            onAddResource,
             pending,
             isSuperuser,
             userEmail,
@@ -211,6 +215,7 @@ function DagInner({
       matchedIds,
       onPlay,
       onPause,
+      onAddResource,
       pending,
       isSuperuser,
       userEmail,

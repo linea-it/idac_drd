@@ -99,7 +99,7 @@ export default function ActivityFilterBar({
               onChange={(e) => onHideUnmatched?.(e.target.checked)}
             />
           }
-          label="Hide unmatched"
+          label="Hide Unmatched"
           slotProps={{ typography: { variant: "body2" } }}
         />
       )}

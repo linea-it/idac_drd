@@ -292,11 +292,30 @@ def test_record_manual_effort(release, user, identity):
     assert session.end_reason == ActivityWorkSession.EndReason.MANUAL
     assert session.ended_at is not None
 
-    with pytest.raises(WorkflowError, match="already recorded"):
-        record_manual_effort(a1, minutes=10, actor=user)
+    record_manual_effort(a1, minutes=10, actor=user)
+    assert abs(activity_effort_seconds(a1) - 600) < 2
 
     transition_activity(a1, to_status=Activity.Status.DONE, actor=user)
     assert a1.status == Activity.Status.DONE
+
+
+@pytest.mark.django_db
+def test_edit_effort_while_paused_not_while_playing(release, user, identity):
+    from idac_drd.workflow.services import record_manual_effort
+
+    a1 = release.activities.get(key="step-1")
+    a1.assignee = identity
+    a1.save(update_fields=["assignee"])
+    play_activity(a1, actor=user)
+    with pytest.raises(WorkflowError, match="Pause the timer"):
+        record_manual_effort(a1, minutes=60, actor=user)
+
+    pause_activity(a1, actor=user)
+    before = activity_effort_seconds(a1)
+    record_manual_effort(a1, minutes=(before / 60) + 30, actor=user)
+    assert abs(activity_effort_seconds(a1) - (before + 1800)) < 2
+    assert ActivityWorkSession.objects.filter(activity=a1, end_reason=ActivityWorkSession.EndReason.PAUSE).exists()
+    assert ActivityWorkSession.objects.filter(activity=a1, end_reason=ActivityWorkSession.EndReason.MANUAL).exists()
 
 
 @pytest.mark.django_db
@@ -314,4 +333,5 @@ def test_api_record_manual_effort(release, user, identity):
     assert res.data["is_playing"] is False
 
     res = client.post(f"/api/activities/{a1.id}/effort/", {"minutes": 5}, format="json")
-    assert res.status_code == 400
+    assert res.status_code == 200
+    assert abs(res.data["effort_seconds"] - 300) < 2

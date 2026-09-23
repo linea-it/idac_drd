@@ -48,6 +48,16 @@ describe("matchesFilters", () => {
     expect(matchesFilters(auto, { ...empty, statuses: ["blocked"] })).toBe(false);
   });
 
+  it("Paused é o in_progress sem sessão; In Progress é só o timer ligado", () => {
+    const paused = act({ status: "in_progress", is_playing: false });
+    const playing = act({ status: "in_progress", is_playing: true });
+    expect(matchesFilters(paused, { ...empty, statuses: ["paused"] })).toBe(true);
+    expect(matchesFilters(playing, { ...empty, statuses: ["paused"] })).toBe(false);
+    expect(matchesFilters(playing, { ...empty, statuses: ["in_progress"] })).toBe(true);
+    expect(matchesFilters(paused, { ...empty, statuses: ["in_progress"] })).toBe(false);
+    expect(matchesFilters(act({ status: "todo" }), { ...empty, statuses: ["paused"] })).toBe(false);
+  });
+
   it("blocked manual permanece distinto de waiting", () => {
     const f = { ...empty, statuses: ["blocked"] };
     expect(matchesFilters(act({ status: "blocked", blocked_reason: "vendor delay" }), f)).toBe(true);
@@ -106,6 +116,14 @@ describe("buildFilterOptions", () => {
     expect(opts.statuses).toContain("todo");
     expect(opts.statuses).toContain("done");
     expect(opts.statuses).not.toContain("blocked");
+  });
+
+  it("Paused entra no facet e não se mistura com In Progress", () => {
+    const opts = buildFilterOptions([
+      act({ id: 1, status: "in_progress", is_playing: false }),
+      act({ id: 2, status: "in_progress", is_playing: true }),
+    ]);
+    expect(opts.statuses).toEqual(["in_progress", "paused"]);
   });
 
   it("áreas vazias ficam fora; só valores presentes não-vazios", () => {

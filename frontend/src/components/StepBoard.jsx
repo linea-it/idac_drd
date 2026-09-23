@@ -2,6 +2,8 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import CheckBoxOutlineBlankRoundedIcon from "@mui/icons-material/CheckBoxOutlineBlankRounded";
+import CheckBoxRoundedIcon from "@mui/icons-material/CheckBoxRounded";
 import ControlPointDuplicateIcon from "@mui/icons-material/ControlPointDuplicate";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
@@ -39,6 +41,7 @@ export default function StepBoard({
   onDuplicateActivity,
   onPlay,
   onPause,
+  onAddResource,
   pending = false,
   isSuperuser = false,
   userEmail = "",
@@ -175,6 +178,12 @@ export default function StepBoard({
                           <ResourceLinks
                             resources={activity.resources}
                             sx={{ p: 0.25, ml: "auto" }}
+                            pending={pending}
+                            onAdd={
+                              onAddResource
+                                ? (resource) => onAddResource(activity, resource)
+                                : undefined
+                            }
                           />
                           {editable && (
                             <Stack direction="row">
@@ -226,12 +235,24 @@ export default function StepBoard({
                                 /{objectiveItems(activity.objectives).length}
                               </Typography>
                             )}
-                            {objectiveItems(activity.objectives).map((obj, i) => (
-                              <Typography key={i} variant="caption" color="text.secondary">
-                                {isObjectiveChecked(obj, activity.status) ? "✓ " : "○ "}
-                                {obj.replace(/^\[[x ]\]\s*/, "")}
-                              </Typography>
-                            ))}
+                            {objectiveItems(activity.objectives).map((obj, i) => {
+                              const done = isObjectiveChecked(obj, activity.status);
+                              return (
+                                <Typography
+                                  key={i}
+                                  variant="caption"
+                                  color="text.primary"
+                                  sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}
+                                >
+                                  {done ? (
+                                    <CheckBoxRoundedIcon sx={{ fontSize: 14, mt: "1px", color: "text.primary", flexShrink: 0 }} />
+                                  ) : (
+                                    <CheckBoxOutlineBlankRoundedIcon sx={{ fontSize: 14, mt: "1px", color: "text.primary", flexShrink: 0 }} />
+                                  )}
+                                  {obj.replace(/^\[[x ]\]\s*/, "")}
+                                </Typography>
+                              );
+                            })}
                           </>
                         )}
                       </Stack>

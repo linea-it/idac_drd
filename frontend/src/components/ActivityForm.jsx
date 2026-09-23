@@ -200,7 +200,7 @@ export default function ActivityForm({
               onChange={(e) => setObjectives(e.target.value)}
             />
             <Box>
-              <Typography variant="overline">Resources</Typography>
+              <Typography variant="overline">Links</Typography>
               {resources.map((r, i) => (
                 <Stack key={i} direction="row" spacing={1} sx={{ mb: 1, alignItems: "flex-start" }}>
                   <TextField
@@ -218,13 +218,13 @@ export default function ActivityForm({
                     onChange={(e) => updateResource(i, { url: e.target.value })}
                     sx={{ flex: 2 }}
                   />
-                  <IconButton size="small" onClick={() => removeResource(i)} title="Remove resource">
+                  <IconButton size="small" onClick={() => removeResource(i)} title="Remove link">
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Stack>
               ))}
               <Button size="small" startIcon={<AddIcon />} onClick={addResource}>
-                Add resource
+                Add link
               </Button>
             </Box>
           </Stack>

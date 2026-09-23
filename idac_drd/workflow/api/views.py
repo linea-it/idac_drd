@@ -409,7 +409,7 @@ class ActivityViewSet(
 
     @action(detail=True, methods=["post"], url_path="effort")
     def effort(self, request, pk=None):
-        """Registra minutos de effort manualmente (esqueceu o Play; só se ainda não há sessão)."""
+        """Define o effort total em minutos (atividade In progress e pausada)."""
         activity = self.get_object()
         try:
             record_manual_effort(activity, minutes=request.data.get("minutes"), actor=request.user)

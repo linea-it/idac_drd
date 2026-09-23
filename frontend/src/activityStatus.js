@@ -31,8 +31,9 @@ const STATUS_LABELS = {
   todo: "To do",
   waiting: "Waiting",
   in_progress: "In Progress",
+  paused: "Paused",
   in_review: "In review",
-  done: "Completed",
+  done: "Done",
   blocked: "Blocked",
 };
 
