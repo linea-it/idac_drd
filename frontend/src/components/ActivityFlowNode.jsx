@@ -28,6 +28,7 @@ export default function ActivityFlowNode({ data }) {
     flash,
     onPlay,
     onPause,
+    onAddResource,
     pending = false,
     isSuperuser = false,
     userEmail = "",
@@ -143,7 +144,12 @@ export default function ActivityFlowNode({ data }) {
               {activity.label}
             </Typography>
             {statusIcon}
-            <ResourceLinks resources={activity.resources} sx={{ p: 0.25 }} />
+            <ResourceLinks
+              resources={activity.resources}
+              sx={{ p: 0.25 }}
+              pending={pending}
+              onAdd={onAddResource ? (resource) => onAddResource(activity, resource) : undefined}
+            />
           </Stack>
           <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap alignItems="center">
             <Chip

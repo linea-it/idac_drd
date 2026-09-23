@@ -203,6 +203,20 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
     });
   }
 
+  async function addActivityResource(activity, resource) {
+    const resources = (activity.resources || [])
+      .filter((r) => (r?.url || "").trim())
+      .map((r) => ({ label: (r.label || "").trim(), url: r.url.trim() }));
+    await mutate(async () => {
+      const data = await api.patch(`/api/activities/${activity.id}/`, {
+        resources: [...resources, resource],
+      });
+      applyActivity(data);
+      setFlash((f) => ({ id: activity.id, n: (f?.n ?? 0) + 1 }));
+      load({ silent: true });
+    });
+  }
+
   async function playActivity(activity) {
     try {
       await mutate(async () => {
@@ -699,6 +713,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
           onDuplicateActivity={duplicateActivity}
           onPlay={!draft && !readonly ? playActivity : undefined}
           onPause={!draft && !readonly ? pauseActivity : undefined}
+          onAddResource={!readonly ? addActivityResource : undefined}
           isSuperuser={isSuperuser}
           userEmail={userEmail}
           onEditStep={(step) => {
@@ -722,6 +737,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
           flash={flash}
           onPlay={!draft && !readonly ? playActivity : undefined}
           onPause={!draft && !readonly ? pauseActivity : undefined}
+          onAddResource={!readonly ? addActivityResource : undefined}
           pending={pending}
           isSuperuser={isSuperuser}
           userEmail={userEmail}
@@ -780,7 +796,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
                 <StepColorPicker value={stepColor} onChange={setStepColor} />
               </Stack>
               <Box>
-                <Typography variant="overline">Resources</Typography>
+                <Typography variant="overline">Links</Typography>
                 {stepResources.map((r, i) => (
                   <Stack key={i} direction="row" spacing={1} sx={{ mb: 1, alignItems: "flex-start" }}>
                     <TextField
@@ -805,7 +821,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
                     <IconButton
                       size="small"
                       onClick={() => setStepResources((prev) => prev.filter((_, j) => j !== i))}
-                      title="Remove resource"
+                      title="Remove link"
                     >
                       <DeleteIcon fontSize="small" />
                     </IconButton>
@@ -816,7 +832,7 @@ export default function ReleaseBoard({ releaseSlug, isStaff, isSuperuser = false
                   startIcon={<AddIcon />}
                   onClick={() => setStepResources((prev) => [...prev, { label: "", url: "" }])}
                 >
-                  Add resource
+                  Add link
                 </Button>
               </Box>
             </Stack>

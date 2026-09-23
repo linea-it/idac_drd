@@ -546,7 +546,7 @@ export function renderStepsAndActivities(release, activities, ctx) {
     if (!acts.length) continue;
     lines.push(`### ${step.label}`);
     const stepLinks = resourcesMarkdown(step.resources);
-    if (stepLinks) lines.push(`- **Resources:** ${stepLinks}`);
+    if (stepLinks) lines.push(`- **Links:** ${stepLinks}`);
     lines.push("");
     for (const a of acts) {
       lines.push(`#### ${a.label} — [${statusLabel(displayStatus(a))}]`);
@@ -556,7 +556,7 @@ export function renderStepsAndActivities(release, activities, ctx) {
       const refs = refsOf(a);
       lines.push(`- **References:** ${refs.github || "—"} · ${refs.glpi || "—"} · ${refs.external || "—"}`);
       const resLinks = resourcesMarkdown(a.resources);
-      if (resLinks) lines.push(`- **Resources:** ${resLinks}`);
+      if (resLinks) lines.push(`- **Links:** ${resLinks}`);
       const depLabels = (a.depends_on || []).map((id) => byId.get(id)?.label || "—").join(", ") || "—";
       lines.push(`- **Dependencies:** ${mdCell(depLabels)} · **Prerequisites met:** ${a.prerequisites_met ? "yes" : "no"} · **Locked:** ${a.locked ? "yes" : "no"}`);
       const cycle = cycleSecondsOf(a) != null
@@ -665,17 +665,17 @@ export function renderWorkload(activities, assigneeStats, actorStats) {
 }
 
 export function renderReferences(activities) {
-  const lines = ["## 8. References & Resources", ""];
+  const lines = ["## 8. References & Links", ""];
   const withRefs = activities.filter((a) => {
     const r = refsOf(a);
     return r.github || r.glpi || r.external || resourcesMarkdown(a.resources);
   });
   if (!withRefs.length) {
-    lines.push("No references or resources recorded.");
+    lines.push("No references or links recorded.");
     return lines;
   }
   lines.push(
-    "| Activity | GitHub | GLPI | External ref | Resources |",
+    "| Activity | GitHub | GLPI | External ref | Links |",
     "|---|---|---|---|---|",
   );
   for (const a of withRefs) {

@@ -18,21 +18,21 @@ def validate_resources(value):
     if value is None:
         return []
     if not isinstance(value, list):
-        raise serializers.ValidationError("Resources need to be a list.")
+        raise serializers.ValidationError("Links need to be a list.")
     if len(value) > MAX_RESOURCES:
-        raise serializers.ValidationError(f"You can add up to {MAX_RESOURCES} resources.")
+        raise serializers.ValidationError(f"You can add up to {MAX_RESOURCES} links.")
     cleaned = []
     for item in value:
         if not isinstance(item, dict):
-            raise serializers.ValidationError("Each resource needs a URL.")
+            raise serializers.ValidationError("Each link needs a URL.")
         url = str(item.get("url") or "").strip()
         if not url:
-            raise serializers.ValidationError("Each resource needs a URL.")
+            raise serializers.ValidationError("Each link needs a URL.")
         if not url.startswith(("http://", "https://")):
-            raise serializers.ValidationError("Resource URLs need to start with http:// or https://.")
+            raise serializers.ValidationError("Link URLs need to start with http:// or https://.")
         label = str(item.get("label") or "").strip()
         if len(label) > 200:
-            raise serializers.ValidationError("Resource labels can be up to 200 characters.")
+            raise serializers.ValidationError("Link labels can be up to 200 characters.")
         cleaned.append({"label": label, "url": url})
     return cleaned
 
