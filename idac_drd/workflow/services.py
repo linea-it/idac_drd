@@ -149,10 +149,6 @@ def pause_activity(activity: Activity, *, actor=None) -> Activity:
     return activity
 
 
-# teto anti-typo: 24h (esqueceu o Play, não um sprint inteiro de uma vez)
-_MAX_MANUAL_EFFORT_MINUTES = 24 * 60
-
-
 def _trim_closed_effort(activity: Activity, *, seconds: float) -> None:
     """Encurta sessões fechadas, da mais recente para a mais antiga, até cortar ``seconds``."""
     remaining = seconds
@@ -195,8 +191,6 @@ def record_manual_effort(activity: Activity, *, minutes: float, actor=None) -> A
         raise WorkflowError("Minutes must be a number.") from exc
     if minutes <= 0:
         raise WorkflowError("Minutes must be greater than zero.")
-    if minutes > _MAX_MANUAL_EFFORT_MINUTES:
-        raise WorkflowError(f"Minutes cannot exceed {_MAX_MANUAL_EFFORT_MINUTES} (24h).")
 
     now = timezone.now()
     target = minutes * 60
