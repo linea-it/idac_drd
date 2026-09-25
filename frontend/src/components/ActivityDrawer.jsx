@@ -216,11 +216,13 @@ export default function ActivityDrawer({
   const depOptions = activities.filter((a) => a.id !== activity.id);
 
   function buildPayload(statusOverride) {
+    const nextStatus = statusOverride || status;
     const payload = {
-      status: statusOverride || status,
+      status: nextStatus,
       assignee_id: assigneeId === "" ? null : Number(assigneeId),
       notes,
-      blocked_reason: blockedReason,
+      // motivo só vai no bloqueio; outro status não grava texto digitado e descartado
+      blocked_reason: nextStatus === "blocked" ? blockedReason : activity.blocked_reason || "",
     };
     // objetivos são lista de seleção do fluxo de execução: a marcação persiste
     // mesmo sem o modo de edição estrutural (canEdit). Links também: qualquer
@@ -246,12 +248,19 @@ export default function ActivityDrawer({
 
   async function handleSave(statusOverride) {
     const nextStatus = typeof statusOverride === "string" ? statusOverride : undefined;
+    const effective = nextStatus || status;
+    if (effective === "blocked" && !isPrereqAutoBlock(activity) && !blockedReason.trim()) {
+      setStatus("blocked");
+      setError("Add a reason for blocking this activity.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
       await onSave(buildPayload(nextStatus));
     } catch (err) {
-      if (nextStatus) setStatus(activity.status);
+      // bloqueio fica no select para o motivo continuar visível
+      if (nextStatus && nextStatus !== "blocked") setStatus(activity.status);
       setError(err.message);
     } finally {
       setSaving(false);
@@ -281,7 +290,7 @@ export default function ActivityDrawer({
   async function submitManualEffort() {
     const hours = Number(manualHours);
     const minutes = Math.round(hours * 60);
-    if (!manualHours || !(hours > 0) || hours > 24 || minutes < 1) return;
+    if (!manualHours || !(hours > 0) || minutes < 1) return;
     setError("");
     setSaving(true);
     try {
@@ -345,6 +354,11 @@ export default function ActivityDrawer({
                     onChange={(e) => {
                       const next = e.target.value;
                       setStatus(next);
+                      // bloqueio manual espera o motivo; os outros status gravam na hora
+                      if (next === "blocked" && activity.status !== "blocked") {
+                        setError("");
+                        return;
+                      }
                       handleSave(next);
                     }}
                     renderValue={(v) =>
@@ -368,6 +382,21 @@ export default function ActivityDrawer({
                     )}
                   </Select>
                 </FormControl>
+                {status === "blocked" && !isPrereqAutoBlock(activity) && (
+                  <TextField
+                    label="Blocked reason"
+                    size="small"
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    value={blockedReason}
+                    onChange={(e) => setBlockedReason(e.target.value)}
+                    disabled={readonly}
+                    helperText={
+                      activity.status !== "blocked" ? "Fill in the reason, then Save to block." : undefined
+                    }
+                  />
+                )}
                 {!readonly &&
                   !draft &&
                   canTimer &&
@@ -438,7 +467,7 @@ export default function ActivityDrawer({
                                 submitManualEffort();
                               }
                             }}
-                            inputProps={{ min: 0.25, step: 0.25, max: 24 }}
+                            inputProps={{ min: 0.25, step: 0.25 }}
                             sx={{ width: 120 }}
                             autoFocus
                           />
@@ -448,7 +477,6 @@ export default function ActivityDrawer({
                             disabled={
                               saving ||
                               !(Number(manualHours) > 0) ||
-                              Number(manualHours) > 24 ||
                               Math.round(Number(manualHours) * 60) < 1
                             }
                             aria-label="Save effort"
@@ -639,18 +667,6 @@ export default function ActivityDrawer({
                     <FormControlLabel value="nifi" control={<Radio size="small" />} label="NiFi" />
                   </RadioGroup>
                 </FormControl>
-                {status === "blocked" && !isPrereqAutoBlock(activity) && (
-                  <TextField
-                    label="Blocked reason"
-                    size="small"
-                    fullWidth
-                    multiline
-                    minRows={2}
-                    value={blockedReason}
-                    onChange={(e) => setBlockedReason(e.target.value)}
-                    disabled={readonly}
-                  />
-                )}
                 {displayStatus(activity) === "waiting" && activity.blocked_reason && (
                   <Typography variant="body2" color="text.secondary">
                     {activity.blocked_reason}

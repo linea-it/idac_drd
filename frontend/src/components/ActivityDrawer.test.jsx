@@ -346,6 +346,46 @@ test("selecionar o status salva na hora e não fecha o drawer", async () => {
   view.unmount();
 });
 
+test("bloquear pede o motivo antes de salvar", async () => {
+  const onSave = vi.fn().mockResolvedValue(undefined);
+  const view = render(
+    <ActivityDrawer
+      open
+      activity={{ ...activity, status: "in_progress" }}
+      releaseSlug="r1"
+      users={[]}
+      githubOptions={{}}
+      steps={[{ id: 1, label: "Step A" }]}
+      activities={[activity]}
+      readonly={false}
+      draft={false}
+      onClose={() => {}}
+      onSave={onSave}
+      onDelete={() => {}}
+      onMove={() => {}}
+    />,
+  );
+
+  fireEvent.mouseDown(screen.getAllByRole("combobox")[0]);
+  fireEvent.click(await screen.findByText("Blocked"));
+
+  expect(onSave).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Blocked reason")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(onSave).not.toHaveBeenCalled();
+  expect(screen.getByText("Add a reason for blocking this activity.")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("Blocked reason"), { target: { value: "Aguardando dataset" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "blocked", blocked_reason: "Aguardando dataset" }),
+    ),
+  );
+  view.unmount();
+});
+
 test("em blocked não há botão de conclusão", async () => {
   const onSave = vi.fn().mockResolvedValue(undefined);
   const view = render(
